@@ -2,6 +2,8 @@
 ## ECE4600 G15 2021/2022 Capstone Project Code & Design Files
 **As prepared by: Rowen Guncheon, Nicolas Hince, David Stewart, Lin Zhan on March 18/2022**
 
+**For details of the software requirements for a particular portion of the project, please see the README.md file in the associated folder.**
+
 # Summary of Hardware directory contents:
 - Hardware/MazeUnit:  STL files for 3D printing a completed maze unit (with ESP32 Sidecar)
 - Hardware/PCB/ESP32_Subsystem: PCB design files for the ESP32 Subsystem board that sits in the sidecar adjacent to the maze unit.
@@ -16,5 +18,3 @@
 - Software/ESP32/Addressing_Firmware:  The initial Hall sensor address programming firmware that runs on the ESP32 SOC.
 - Software/Server:  The required Python/Flask based server that runs on the Raspberry Pi (or other Linux system)
 - Software/Visualization: The data visualization php script that reads data from the SQL database and overlays this information on a web page.  (place in /var/www/html)
-
-**For details of the software requirements for a particular portion of the project, please see the README.md file in the associated folder.**
