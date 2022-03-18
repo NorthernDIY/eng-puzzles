@@ -3,7 +3,7 @@
 **As prepared by: Rowen Guncheon, Nicolas Hince, David Stewart, Lin Zhan on March 18/2022**
 
 # AllPaths:
-Algorithm used for generating a library of paths from a given input maze.  (For use with future ML work)
+Algorithm used for generating a library of paths from a given input maze.  (For use with future machine learning work)
 
 ### Requires:
 - Python V3.7
