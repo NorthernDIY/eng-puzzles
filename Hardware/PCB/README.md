@@ -6,5 +6,5 @@
 - POC: PCB Design files for the Proof Of Concept board featuring ALS31313 Sensors
 - Sensor_Block:  PCB design files for the modular (2x2) Hall sensor boards that sit beneath the maze floor.
 
-
-These files were exported from EasyEDA V 6.4.31
+### Required Software
+These files were exported from EasyEDA V 6.4.31 and should be importable to later versions.
