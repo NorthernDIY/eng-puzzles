@@ -4,7 +4,7 @@
 
 
 # Server:
-Python/Flask based server that runs on the Raspberry Pi (or other Linux system) and processing incoming data from the Maze Unit
+Python/Flask based server that runs on the Raspberry Pi (or other Linux system) and processing incoming data from the Maze Unit. Contains both acceleromter filtering and the full positioning system.
 
 This is basically glue that combines project elements.
 
