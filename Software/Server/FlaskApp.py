@@ -5,20 +5,15 @@ Created on Thu Nov 25 17:28:34 2021
 @author: David
 """
 
-# import pandas as pd
-import csv
 #import numpy as np
 from numpy import argmin,zeros
 from numpy import size as npsize
 from numpy import square as npsquare
 from numpy import add as npadd
-import math
-import pymysql
-import matplotlib.pyplot as plt
-import time
+#import matplotlib.pyplot as plt
 from scipy.signal import butter, lfilter, buttord, find_peaks
-
-import os, json, sys, logging, pymysql
+#import logging
+import csv, os, json, sys, pymysql, time, math
 from colorama import Fore,Back,Style
 from flask import Flask, request
 
