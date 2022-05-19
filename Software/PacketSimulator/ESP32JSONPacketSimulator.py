@@ -1,7 +1,14 @@
-import json,random,requests, sys
+import json,random,requests, sys, socket, msgpack
 from datetime import datetime,timedelta
 
 random.seed(1)#comment out this line to have real random data
+
+
+serverAddressPort   = ("127.0.0.1", 20002)
+bufferSize          = 1024
+
+# Create a UDP socket at client side
+UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 
 
 start_time = datetime.now()
@@ -12,16 +19,16 @@ def millis():
    ms = (dt.days * 24 * 60 * 60 + dt.seconds) * 1000 + dt.microseconds / 1000.0
    return ms
 
-hallBlockSize = 10 #number of hall samples contained in a packet
-accelBlockSize = 50 #number of accelerometer samples contained in a packet
+hallBlockSize = 5 #number of hall samples contained in a packet
+accelBlockSize = 5 #number of accelerometer samples contained in a packet
 
-sampleIntervalHall = 50 #on the ESP32 we sample the AVERAGE every 50mSec
-sampleIntervalAccel = 10 # on the ESP32 we sample every 10mSec
+sampleIntervalHall = 500 #on the ESP32 we sample the AVERAGE every 50mSec
+sampleIntervalAccel = 1000 # on the ESP32 we sample every 10mSec
 
 reportIntervalHall = sampleIntervalHall * hallBlockSize #Hall packet transmission interval in milliseconds
 reportIntervalAccel = sampleIntervalAccel * accelBlockSize#Accell Packet transmission interval in milliseconds
 
-NumSensors = 24# Number of Hall sensors to simulate
+NumSensors = 4# Number of Hall sensors to simulate
 timestamp_hall = 0;  #Time stamp each hall packet (unit is in reportIntervalHall mSec)
 timestamp_accel = 0; #Time stamp each accel packet (unit is in interval_accel mSec)
 
@@ -33,7 +40,7 @@ jsonHeaders = {'content-type': 'application/json'}
 #blank dictionaries for storing data -- These get converted from python dictionary to json
 JsonHDictionary = {}
 JsonADictionary = {"T":timestamp_accel,"Ax":[],"Ay":[],"Az":[]}
-JsonRDictionary = {"Version":"Sim v0.5",
+JsonRDictionary = {"Version":"Sim v0.9",
                    "NumSens":NumSensors,
                    #Hall Sensor Stuff
                    "Hbs":hallBlockSize,
@@ -41,11 +48,16 @@ JsonRDictionary = {"Version":"Sim v0.5",
                    #Accelerometer Stuff
                    "Abs":accelBlockSize,
                    "A_Samp_Int": sampleIntervalAccel}
-print(reportIntervalAccel)
-resetPost = requests.post(Reset_url, json.dumps(JsonRDictionary), headers = jsonHeaders)
-
-
-#sys.exit()
+print(msgpack.dumps(JsonRDictionary))
+#resetPost = requests.post(Reset_url, json.dumps(JsonRDictionary), headers = jsonHeaders)
+msgFromClient       = msgpack.dumps(JsonRDictionary)
+bytesToSend         = msgFromClient
+print("MSGPACK Sending: %d bytes...\n"%(len(bytesToSend)))
+print("(JSON Compared to : %d bytes)"%(len(json.dumps(JsonRDictionary))))
+UDPClientSocket.sendto(bytesToSend, serverAddressPort)
+SessionID = UDPClientSocket.recvfrom(bufferSize)
+print(SessionID)
+sys.exit()
 runTime = millis()
 halltime = runTime #tracks last packet send time 
 acceltime = runTime#tracks last packet send time
