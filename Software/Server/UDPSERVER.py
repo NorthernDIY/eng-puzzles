@@ -3,7 +3,7 @@
 import socket, msgpack, pprint
 localIP     = "127.0.0.1"# Localhost for now
 localPort   = 20002
-bufferSize  = 1024
+bufferSize  = 20000
  
 msgFromServer       = "Hello UDP Client"
 bytesToSend         = str.encode(msgFromServer)
