@@ -5,6 +5,7 @@ import sys
 import socket
 import msgpack
 from datetime import datetime, timedelta
+from time import sleep
 
 #random.seed(1)  # comment out this line to have real random data
 
@@ -28,26 +29,25 @@ def millis():
     return ms
 
 
-hallBlockSize = 8  # number of hall samples contained in a packet
-accelBlockSize = 50  # number of accelerometer samples contained in a packet
+hallBlockSize = 4  # number of hall samples contained in a packet
+accelBlockSize = 20  # number of accelerometer samples contained in a packet
 
-sampleIntervalHall = 50  # on the ESP32 we sample the AVERAGE every 50mSec
-sampleIntervalAccel = 10  # on the ESP32 we sample every 10mSec
+sampleIntervalHall = 500  # on the ESP32 we sample the AVERAGE every 50mSec
+sampleIntervalAccel = 100  # on the ESP32 we sample every 10mSec
 
 # Hall packet transmission interval in milliseconds
 reportIntervalHall = sampleIntervalHall * hallBlockSize
 # Accell Packet transmission interval in milliseconds
 reportIntervalAccel = sampleIntervalAccel * accelBlockSize
 
-NumSensors = 24  # Number of Hall sensors to simulate
+NumSensors = 4  # Number of Hall sensors to simulate
 # Time stamp each hall packet (unit is in reportIntervalHall mSec)
 timestamp_hall = 0
 # Time stamp each accel packet (unit is in interval_accel mSec)
 timestamp_accel = 0
 
 # blank dictionaries for storing data -- These get converted from python dictionary to msgpack
-HallDictionary = {}
-AccelDictionary = {"T": timestamp_accel, "x": [], "y": [], "z": []}
+
 ResetDictionary = {"Hello": 0.79,
                    "NumSens": NumSensors,
                    # Hall Sensor Stuff
@@ -76,6 +76,8 @@ except socket.timeout:
 runTime = millis()
 halltime = runTime  # tracks last packet send time
 acceltime = runTime  # tracks last packet send time
+HallDictionary = {}
+AccelDictionary = {"TA": timestamp_accel, "#":SessionID, "x": [], "y": [], "z": []}
 while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 	try:
 		#print(runTime - halltime)
@@ -85,7 +87,11 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 		if ((runTime - halltime) > (reportIntervalHall)):
 			halltime = runTime
 			HallDictionary['TH'] = timestamp_hall
+			HallDictionary['#'] = SessionID
 			for index in range(0, hallBlockSize):
+				#Saves 1 byte x block size per packet ( only for bs>9 ... So basically nothing...)
+				#KeyValx = "x" + str(chr(97 + index))
+				#KeyValy = "y" + str(chr(97 + index))
 				KeyValx = "x" + str(index)
 				KeyValy = "y" + str(index)
 				#KeyValz = "Hz" + str(index)
@@ -118,10 +124,10 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 
 		# Accel Packet
 		if ((runTime - acceltime)>(reportIntervalAccel)):
-			# if (0):
+		#if (0):
 			acceltime = runTime
 
-			HallDictionary["TA"] = timestamp_accel
+
 			for x in range(0, accelBlockSize):
 				AccelDictionary["x"].append(
 					random.randrange(-2047, 2047))
@@ -145,11 +151,20 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 			UDPClientSocket.sendto(bytesToSend, serverAddressPort)
 			timestamp_accel = timestamp_accel + \
 				(accelBlockSize*sampleIntervalAccel)
-			AccelDictionary = {"TA": timestamp_accel, "x": [], "y": [], "z": []}
+			AccelDictionary = {"TA": timestamp_accel, "#":SessionID, "x": [], "y": [], "z": []}
 
 		# Update current time for next loop
 		runTime = millis()
 	except socket.timeout:
 		print("TIMEOUT! No response from Server, Exiting.")
+		UDPClientSocket.close()
+		sys.exit()
+	except KeyboardInterrupt:
+		print("\nShutdown initiated")
+		endDictionary = {"Bye":1}
+		msgFromClient = msgpack.dumps(endDictionary)
+		print(msgFromClient)
+		UDPClientSocket.sendto(msgFromClient, serverAddressPort)
+		sleep(0.5)
 		UDPClientSocket.close()
 		sys.exit()
