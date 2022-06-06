@@ -51,11 +51,11 @@ timestamp_accel = 0
 ResetDictionary = {"Hello": 0.79,
                    "NumSens": NumSensors,
                    # Hall Sensor Stuff
-                   "Hbs": hallBlockSize,
-                   "H_Samp_Int": sampleIntervalHall,
+                   "HBS": hallBlockSize,
+                   "HST": sampleIntervalHall,
                    # Accelerometer Stuff
-                   "Abs": accelBlockSize,
-                   "A_Samp_Int": sampleIntervalAccel}
+                   "ABS": accelBlockSize,
+                   "AST": sampleIntervalAccel}
 print(msgpack.dumps(ResetDictionary))
 #resetPost = requests.post(Reset_url, json.dumps(JsonRDictionary), headers = jsonHeaders)
 msgFromClient = msgpack.dumps(ResetDictionary)
@@ -123,8 +123,8 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 			HallDictionary = {}
 
 		# Accel Packet
-		if ((runTime - acceltime)>(reportIntervalAccel)):
-		#if (0):
+		#if ((runTime - acceltime)>(reportIntervalAccel)):
+		if (0):
 			acceltime = runTime
 
 
