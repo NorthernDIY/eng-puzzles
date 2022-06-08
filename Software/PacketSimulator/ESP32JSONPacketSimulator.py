@@ -1,16 +1,18 @@
 import json
 import random
+#from turtle import bye
 import requests
 import sys
 import socket
 import msgpack
 from datetime import datetime, timedelta
 from time import sleep
+import pprint
 
 #random.seed(1)  # comment out this line to have real random data
 
 
-serverAddressPort = ("127.0.0.1", 20002)
+params = {"IP":"127.0.0.1", "PORT": 20002}
 bufferSize = 2000
 
 # Create a UDP socket at client side
@@ -40,7 +42,8 @@ reportIntervalHall = sampleIntervalHall * hallBlockSize
 # Accell Packet transmission interval in milliseconds
 reportIntervalAccel = sampleIntervalAccel * accelBlockSize
 
-NumSensors = 4  # Number of Hall sensors to simulate
+NumSensors = 24  # Number of Hall sensors to simulate
+UseHZ = 0 #Use Hall Sensor Z, or not!
 # Time stamp each hall packet (unit is in reportIntervalHall mSec)
 timestamp_hall = 0
 # Time stamp each accel packet (unit is in interval_accel mSec)
@@ -48,6 +51,21 @@ timestamp_accel = 0
 
 # blank dictionaries for storing data -- These get converted from python dictionary to msgpack
 
+args = sys.argv
+params ={}
+alen = len(args)
+if alen==5:
+	for item in range(1,alen,2):
+		if args[item] == "--ip":
+			params["IP"] = args[item +1]
+		if args[item] == "--port":
+			params["PORT"] = int(args[item +1])
+	pprint.pprint(params)
+elif alen>1:
+    print("Invalid arguments, specify parameters as --port #### --ip ###.###.###.###")
+    sys.exit()
+else:
+	print("Using defaults: Address: %s & port: %d" %(str(params["IP"]), params["PORT"]))
 ResetDictionary = {"Hello": 0.79,
                    "NumSens": NumSensors,
                    # Hall Sensor Stuff
@@ -55,13 +73,16 @@ ResetDictionary = {"Hello": 0.79,
                    "HST": sampleIntervalHall,
                    # Accelerometer Stuff
                    "ABS": accelBlockSize,
-                   "AST": sampleIntervalAccel}
+                   "AST": sampleIntervalAccel,
+				   "HallZ": UseHZ}
 print(msgpack.dumps(ResetDictionary))
 #resetPost = requests.post(Reset_url, json.dumps(JsonRDictionary), headers = jsonHeaders)
 msgFromClient = msgpack.dumps(ResetDictionary)
 bytesToSend = msgFromClient
 print("*MSGPACK* Sending: %d bytes...\n" % (len(bytesToSend)))
 print("(*JSON* Would be: %d bytes)" % (len(json.dumps(ResetDictionary))))
+
+serverAddressPort = (params["IP"], params["PORT"])
 try:
 	UDPClientSocket.sendto(bytesToSend, serverAddressPort)
 	SessionIDResponse = UDPClientSocket.recvfrom(bufferSize)[0]
@@ -94,20 +115,25 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 				#KeyValy = "y" + str(chr(97 + index))
 				KeyValx = "x" + str(index)
 				KeyValy = "y" + str(index)
-				#KeyValz = "Hz" + str(index)
+
 				HallDictionary[KeyValx] = []
 				HallDictionary[KeyValy] = []
-				#JsonHDictionary[KeyValz] = []
+				if UseHZ:
+					KeyValz = "z" + str(index)
+					HallDictionary[KeyValz] = []
+				
 
 				for x in range(0, NumSensors):
 					HallDictionary[KeyValx].append(random.randrange(-2047, 2047))
 					HallDictionary[KeyValy].append(random.randrange(-2047, 2047))
+					if UseHZ:
+						HallDictionary[KeyValz].append(random.randrange(-2047, 2047))
 					# JsonHDictionary[KeyValx].append(-2046.012)
 					# JsonHDictionary[KeyValy].append(-2046.012)
 					#JsonHDictionary[KeyValz].append(random.randrange(-2047, 2047))
 
-			if (reportIntervalHall > 500):
-				print("Hall Packet: ", end="")
+			#if (reportIntervalHall > 500):
+			#	print("Hall Packet: ", end="")
 				# print(JsonHDictionary)
 				# print()
 
@@ -115,16 +141,16 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 			#r = requests.post(Hall_url, json = jsonHObject, headers=jsonHeaders)
 			msgFromClientH = msgpack.dumps(HallDictionary)
 			bytesToSend = msgFromClientH
-			print("H  *MSGPACK* Sending: %d bytes..." % (len(bytesToSend)), end="")
-			print("(*JSON* Would be: %d bytes)" %
+			print("H  *MSGPACK* (Sent %d bytes) " % (len(bytesToSend)), end="")
+			print("(JSON Would've been: %d)" %
 				  (len(json.dumps(HallDictionary))))
 			UDPClientSocket.sendto(bytesToSend, serverAddressPort)
 			timestamp_hall = timestamp_hall + (hallBlockSize*sampleIntervalHall)
 			HallDictionary = {}
 
 		# Accel Packet
-		#if ((runTime - acceltime)>(reportIntervalAccel)):
-		if (0):
+		if ((runTime - acceltime)>(reportIntervalAccel)):
+		#if (0):
 			acceltime = runTime
 
 
@@ -145,8 +171,8 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 			#r = requests.post(Accel_url, json=jsonAObject, headers=jsonHeaders)
 			msgFromClientA = msgpack.dumps(AccelDictionary)
 			bytesToSend = msgFromClientA
-			print("A  *MSGPACK* Sending: %d bytes..." % (len(bytesToSend)), end="")
-			print("(*JSON* Would be: %d bytes)" %
+			print("A *MSGPACK* Sent: %d bytes " % (len(bytesToSend)), end="")
+			print("(JSON Would've been: %d bytes)" %
 				  (len(json.dumps(AccelDictionary))))
 			UDPClientSocket.sendto(bytesToSend, serverAddressPort)
 			timestamp_accel = timestamp_accel + \
@@ -165,6 +191,9 @@ while timestamp_hall < 60*60 / 50e-3:  # 1 Hour of 50mSec Packets
 		msgFromClient = msgpack.dumps(endDictionary)
 		print(msgFromClient)
 		UDPClientSocket.sendto(msgFromClient, serverAddressPort)
+		byeResponse = UDPClientSocket.recvfrom(bufferSize)[0]
+		lastRXd = msgpack.loads(byeResponse)["OK"]
+		print("Last Packet sent with t0 index: %d" % lastRXd)
 		sleep(0.5)
 		UDPClientSocket.close()
 		sys.exit()
