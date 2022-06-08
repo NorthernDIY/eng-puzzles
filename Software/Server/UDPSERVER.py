@@ -74,7 +74,6 @@ def unpack(UDP_packet):
 
 #Determine message type based on presence of specific Keys
 def getMsgType(message):
-    #pprint.pprint(message)
     if message.__contains__("Hello"):
         return msgType.START
     elif message.__contains__("TH"):
@@ -89,7 +88,6 @@ def getMsgType(message):
 
 
 def SaveSettings():
-
     #store vars as dict for easy JSON Load/Dump
     cfgVars = {"IP": localIP, "Port": localPort, "bSize": bufferSize, "SID":sessionID}
     with open(cfg_fName, 'w') as outfile:
@@ -98,19 +96,16 @@ def SaveSettings():
 def LoadSettings():
     global sessionID, localIP, localPort, bufferSize
     if os.path.exists(cfg_fName):
-        #file1 = open(cfg_fName, "rb") 
-        #cfgVars = pickle.load(file1)
         with open(cfg_fName) as json_file:
             cfgVars = json.load(json_file)
-
         sessionID = cfgVars["SID"]
         localIP = cfgVars["IP"]
         localPort = cfgVars["Port"]
         bufferSize = cfgVars["bSize"]
-        print("Last Session # loaded from file: %d" %sessionID)
-        #file1.close
+        print("Last Session # loaded from file: %d" %sessionID)   
     else:
         print("No Settings file found, using defaults")
+
 
 def newSQLdb(fName): #Setup the session specific DB
     global sqlConn, cursor
@@ -122,11 +117,11 @@ def newSQLdb(fName): #Setup the session specific DB
     else:
         createHallTable = "CREATE TABLE Hall(time INTEGER, senseNum INTEGER, x INTEGER, y INTEGER, PRIMARY KEY(senseNum, time));"
     createAccelTable = "CREATE TABLE Accel(time integer PRIMARY KEY, x INTEGER, y INTEGER, z INTEGER);"
-    #print(createHallTable)
     cursor.execute(createParamTable)
     cursor.execute(createHallTable)
     cursor.execute(createAccelTable)
     sqlConn.commit()
+
 
 def InsertHallData(messageData):
     global currHTime
@@ -135,8 +130,7 @@ def InsertHallData(messageData):
     else:
         SqlString = "INSERT INTO Hall(time, senseNum, x, y) Values( ?, ?, ?, ?);"
     #HallDict = {}
-    currHTime = messageData["TH"]
-    
+    currHTime = messageData["TH"] 
     i = 0
     for t in range(0,HBSz):#outerloop = time
         xTag = "x" + str(i)
@@ -152,6 +146,7 @@ def InsertHallData(messageData):
         i+=1
         sqlConn.commit()
 
+
 def InsertAccelData(messageData):
     SqlString = "INSERT INTO Accel(time, x, y, z) Values( ?, ?, ?, ?);"
     currTime = messageData["TA"]
@@ -162,7 +157,6 @@ def InsertAccelData(messageData):
         cursor.execute(SqlString,sqlData)
         i+=1
         sqlConn.commit()
-
 
 
 args = sysArgs
@@ -209,7 +203,7 @@ print("UDP server up and listening @%s:%d" %(localIP, localPort))
 activeSessions = {"0.0.0.0":-1} # Guard value, not really needed
 
 # Listen for incoming datagrams
-try:
+try:# Try allows us to catch keyboard interrupt
     while(True):
         bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
         Packet = bytesAddressPair[0]
