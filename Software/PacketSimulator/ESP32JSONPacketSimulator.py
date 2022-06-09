@@ -11,7 +11,7 @@ import pprint
 
 #random.seed(1)  # comment out this line to have real random data
 
-
+#Default IP and Port 
 params = {"IP":"127.0.0.1", "PORT": 20002}
 bufferSize = 2000
 
