@@ -34,8 +34,8 @@
 //#define G15_SSID "ECE4600_G15"
 //#define G15_PASSWORD "ECE4600G15"
 
-#define G15_SSID "8675309"
-#define G15_PASSWORD "123456789101"
+#define G15_SSID "AMazeThing"
+#define G15_PASSWORD "hn7P8Egh"
 
 #define UDPBUFSIZE 1500
 //Server Endpoints
@@ -87,13 +87,13 @@
 #define CAM_KEY 0x2C413534 //ALS31300 Sensors
 
 //MCPWM LED CONTROL Macros - Too short to need a seperate function, too long to type out in full each time
-#define haltGreenLed() MCPWM0.timer[0].mode.start=0
-#define solidGreenLed() mcpwm_set_signal_high(MCPWM_UNIT_0,MCPWM_TIMER_0, MCPWM_OPR_A)
-#define offGreenLed() mcpwm_set_signal_low(MCPWM_UNIT_0,MCPWM_TIMER_0, MCPWM_OPR_A)
+//#define haltGreenLed() MCPWM0.timer[0].mode.start=0
+//#define solidGreenLed() mcpwm_set_signal_high(MCPWM_UNIT_0,MCPWM_TIMER_0, MCPWM_OPR_A)
+//#define offGreenLed() mcpwm_set_signal_low(MCPWM_UNIT_0,MCPWM_TIMER_0, MCPWM_OPR_A)
 
-#define haltRedLed() MCPWM1.timer[0].mode.start=0
-#define solidRedLed() mcpwm_set_signal_high(MCPWM_UNIT_1,MCPWM_TIMER_0, MCPWM_OPR_A)
-#define offRedLed() mcpwm_set_signal_low(MCPWM_UNIT_1,MCPWM_TIMER_0, MCPWM_OPR_A)
+//#define haltRedLed() MCPWM1.timer[0].mode.start=0
+//#define solidRedLed() mcpwm_set_signal_high(MCPWM_UNIT_1,MCPWM_TIMER_0, MCPWM_OPR_A)
+//#define offRedLed() mcpwm_set_signal_low(MCPWM_UNIT_1,MCPWM_TIMER_0, MCPWM_OPR_A)
 
 //To speed up final project computational speed, uncomment the following!
 //This will require additional Flash/Ram, but can provide substantial speed increases.
@@ -111,9 +111,9 @@
 #include <esp_wifi.h>
 
 //Libraries to enable Output of LOW FREQ PWM Using MCPWM Peripheral
-#include "soc/mcpwm_reg.h"
-#include "soc/mcpwm_struct.h"
-#include "driver/mcpwm.h"
+//#include "soc/mcpwm_reg.h"
+//#include "soc/mcpwm_struct.h"
+//#include "driver/mcpwm.h"
 
 //Actual C code files C:\Users\---username---\.platformio\packages\framework-espidf\components\driver
 #include "driver/i2c.h" //Needed to allow use of I2C peripheral settings to actually reach 1MHz!
@@ -181,6 +181,7 @@ JsonArray Hy[hallBlockSize];
 JsonArray Ax,Ay,Az;
 
 WiFiClient client;
+WiFiUDP wifiUDPclient;
 String stringifiedJson;//String that stores the json encoded data used on startup and caldata send
 String stringifiedJsonH;//String that stores the json encoded data special as this is run in a different task.
 String stringifiedJsonA;//String that stores the json encoded data special as this is run in a different task.
@@ -252,7 +253,7 @@ void powerOffSensors();
 void powerOnSensors_useEEPROMAddressses();
 void powerOnSensors_useDividerAddresses();
 
-void initSensor(uint8_t index);
+bool initSensor(uint8_t index);
 void enterCam(uint8_t busAddress, uint32_t magicKey);
 void setup();
 void IRAM_ATTR loop();
@@ -264,9 +265,9 @@ void IRAM_ATTR readALS31300ADC(uint8_t index);
 uint16_t read(int busAddress, uint8_t address, uint32_t& value);
 uint16_t write(int busAddress, uint8_t address, uint32_t value);
 long IRAM_ATTR SignExtendBitfield(uint32_t data, int width);
-void setupNoCPULEDBlink(uint8_t pin1, uint8_t pin2); //Setup the MCPWM Peripheral to control led blinking
-void blinkRedLed();
-void blinkGreenLed();
+//void setupNoCPULEDBlink(uint8_t pin1, uint8_t pin2); //Setup the MCPWM Peripheral to control led blinking
+//void blinkRedLed();
+//void blinkGreenLed();
 void initI2CBusses();
 void beginSession();
 void sendCalData();
@@ -276,6 +277,8 @@ void packetizeAndSendH(void * pvParameters);
 void packetizeAndSendA(void * pvParameters);
 void sampleAccelTask( void * pvParameters);
 void sampleHallTask( void * pvParameters);
+void initIO();
+void initPower();
 
 
 
@@ -301,38 +304,18 @@ SSD1306AsciiWire oled(I2C_MS);
 void setup()
 {
   esp_task_wdt_init(30, false); //set wdt to higher timeout
-  //Setup pin directions   
-  pinMode(_CTL_VCC3V3, OUTPUT);
-  pinMode(_CTL_ACCEL_PWR, OUTPUT);
-  pinMode(CTL_VDIVIDER, OUTPUT);
-  pinMode(_CTL_CHA1_PWR, OUTPUT);
-  pinMode(_CTL_CHA2_PWR, OUTPUT);
-  pinMode(_CTL_CHA3_PWR, OUTPUT);
-  pinMode(_CTL_CHA4_PWR, OUTPUT);
-  pinMode(IND_LED1,OUTPUT);  //Green LED
-  pinMode(IND_LED2, OUTPUT); //Red LED
-  pinMode(IND_LED3, OUTPUT); //Yellow LED
-  pinMode(REED_SWITCH, INPUT);
-
-  digitalWrite(IND_LED1, HIGH);
-  digitalWrite(IND_LED2, HIGH);
-  digitalWrite(IND_LED3, HIGH);
-
- //Turn on main power and Channels 1 & 2 - Divider off = assume eeprom is setup already
-  digitalWrite(_CTL_VCC3V3,LOW); //3v3 on
-  digitalWrite(CTL_VDIVIDER, LOW);
-  delay(10);
-  digitalWrite(_CTL_CHA1_PWR, LOW);//CHA1 on
-  digitalWrite(_CTL_CHA2_PWR, LOW);//CHA2 On
-  digitalWrite(_CTL_ACCEL_PWR, LOW);//Accel On
-  delay(250);
+  //Setup pin directions
+  initIO();  
+  
+  //Turn on main power, Hall Channels 1 & 2 and Accelerometer/Oled
+  //Divider off = assume Hall eeproms are setup already (Addresses)
+  initPower();
+  
+  
 
   digitalWrite(IND_LED1, LOW);
   digitalWrite(IND_LED2, LOW);
   digitalWrite(IND_LED3, LOW);
-  
-  setupNoCPULEDBlink(IND_LED1, IND_LED2); //Setup the MCPWM peripherals to handle low speed led blinking
-  blinkGreenLed();
 
   hMutex = xSemaphoreCreateMutex();//Used to prevent hall data from being reset before serialized
   aMutex = xSemaphoreCreateMutex();//Used to prevent accel data from being reset before serialized
@@ -340,6 +323,20 @@ void setup()
   //These are likely way bigger than they need to be after judicious optimization they should be reevaluated
   stringifiedJson.reserve(4096);
     // Initialize the serial port
+  initI2CBusses(); // Initialize the I2C communication ports
+    oled.begin(&Adafruit128x64, I2C_ADDRESS);
+  oled.setContrast(1);
+  //oled.setI2cClock(440000L);
+  oled.setFont(font5x7);
+  oled.clear();
+  oled.set2X();
+
+  oled.print("AMazeThing!");
+  oled.set1X();
+  oled.setCursor(45,2);
+  oled.print("v0.79");
+
+
   Serial.begin(230400);
   int freq = ESP.getCpuFreqMHz();
   Serial.print("\nSystem Frequency: ");
@@ -348,37 +345,53 @@ void setup()
   Serial.print(ssid);
   WiFi.setSleep(false);
   WiFi.begin(ssid, password);
-  
-  //while(WiFi.status() != WL_CONNECTED){
-  //  delay(250);
-  //  Serial.print(".");
-  //}
-  Serial.print("Connected!\nLocal IP:  ");
-  Serial.println(WiFi.localIP());
-  
-  initI2CBusses(); // Initialize the I2C communication ports
-
-  //Initialize each Hall sensor -- Enters CAM mode and sets up Full Loop Register 
-  for (uint8_t index = 0; index<NUMSENSORS; index++){
-    initSensor(index);
+  oled.setCursor(0,3);
+  oled.print("WiFi: ");
+  while(WiFi.status() != WL_CONNECTED){
+    delay(250);
+    Serial.print(".");
   }
+  oled.print(WiFi.localIP());
+  oled.setCursor(0,4);
+  oled.print("Hall: ");
+  
 
+  //Initialize each Hall sensor -- Enters CAM mode and sets up Full Loop Register
+  bool okSensors = true;
+  for (uint8_t index = 0; index<NUMSENSORS; index++){
+    if (!initSensor(index)){
+      okSensors = false;
+    }
+  }
+  if (okSensors){
+    oled.print("OK");
+  }else{
+    oled.print("InitError");
+  }
+  
+  okSensors = true;
+  oled.setCursor(0,5);
+  oled.print("Accel: ");
   //Initialize Accelerometer
-  //accel.begin(ACCEL_ADDRESS, I2C_MS);
-  //accel.setDataRate(LIS2DH12_ODR_400Hz);
+  accel.begin(ACCEL_ADDRESS, I2C_MS);
+  accel.setDataRate(LIS2DH12_ODR_400Hz);
+  if (accel.isConnected()){
+    oled.print("OK");
+  }else{
+    oled.print("InitError");
+  }
   //accel.setSensitivity();
 
   //Development Info
   Serial.printf("SETTINGS:,SamplePeriod:,%dms,ReportRate:,%dms,NumSensors:,%d,AvgSamples:,%d\n", HALLSAMPPERIOD,HALLREPORTTIME,NUMSENSORS,HALLAVERAGINGSAMPLES);
-
+  wifiUDPclient.beginPacket("10.42.0.1", 20002);
+  wifiUDPclient.print("HELLOEOWOEOEOWOWEOWE");
+  wifiUDPclient.endPacket();
+  oled.setCursor(0,6);
+  oled.print('Done');
   //TODO - Move to separate function.  Nothing below is a variable so no need to pass any data; Return value can be httpResponseCode  
   //Send reset to server along with block size information + other interesting things
-  oled.begin(&Adafruit128x64, I2C_ADDRESS);
-  oled.setContrast(255);
-  //oled.setI2cClock(440000L);
-  oled.setFont(System5x7);
-  oled.clear();
-  oled.print("Hello world!");
+
   while(1);
   /*StaticJsonDocument<2048> startDoc;
   
@@ -448,7 +461,7 @@ void setup()
   Serial.println("G15 Instrumented Puzzle Initialized...\nReady state starts in 1 Sec");
   stringifiedJson="";
   delay(1000);
-  solidGreenLed();//Everything is ready to record data!
+  //solidGreenLed();//Everything is ready to record data!
 }
 
 //Main loop just waits for reed switch to activate
@@ -495,7 +508,7 @@ void IRAM_ATTR beginSession(){
   Ay = accelDoc.createNestedArray("Y");
   //Az = accelDoc.createNestedArray("Z");
   uint32_t tTime = 0;
-  blinkRedLed();
+  //blinkRedLed();
   active = true;//state variable toggled by reed switch
   TaskHandle_t * SampleA_Task_Handle;
   TaskHandle_t * SampleH_Task_Handle;
@@ -523,7 +536,7 @@ void IRAM_ATTR beginSession(){
       if (digitalRead(REED_SWITCH)&&hallPacketIndex){
         active = false;
         tTime = loopStartTime;
-        offRedLed();
+        //offRedLed();
         //vTaskDelete(SampleA_Task_Handle);
         //vTaskDelete(SampleH_Task_Handle);
         xSemaphoreTake(httpMutexA, portMAX_DELAY);
@@ -546,7 +559,7 @@ void IRAM_ATTR beginSession(){
 *     Data used for position tracking algorithm and server uses this packet to indicate a new session has started.
 */
 void sendCalData(){
-  solidRedLed();
+  //solidRedLed();
   uint32_t sTimer = millis();
   int count = 0;
   //Scan the Hall Matrix HALLAVERAGINGSAMPLES times, every HALLSAMPPERIOD milliseconds
@@ -891,9 +904,9 @@ void enterCam(uint8_t busAddress, uint32_t magicKey){
   }  
 }
 
-void initSensor(uint8_t index){
+bool initSensor(uint8_t index){
   enterCam(sensorAddresses[index], CAM_KEY);
-  
+  bool sensorOk = true;
   //TODO CLEAN UP CODE AND JUST USE index below!
   uint8_t busAddress = sensorAddresses[index];
   //Disable Loop Mode //Should be disabled by default
@@ -905,6 +918,7 @@ void initSensor(uint8_t index){
     {
         Serial.print("Unable to read the ALS31300. error = ");
         Serial.println(error);
+        sensorOk = false;
     }
 
     // I2C loop mode is in bits 2 and 3 so mask them out
@@ -918,6 +932,7 @@ void initSensor(uint8_t index){
     {
         Serial.print("Unable to write to the ALS31300. error = ");
         Serial.println(error);
+        sensorOk = false;
     }
 
     //Now set the address of the loop mode increment.
@@ -942,10 +957,11 @@ void initSensor(uint8_t index){
   sensors[index].sampIndex=0;
   //May be useful later, but possible to remove
   sensors[index].address=sensorAddresses[index];
+  return sensorOk;
 }
 
 
-void setupNoCPULEDBlink(uint8_t pin1, uint8_t pin2){
+/*void setupNoCPULEDBlink(uint8_t pin1, uint8_t pin2){
 
   //Borrowed and modified code, see notebook log for source!
   mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, pin1);     //Green LED on Unit 0
@@ -978,7 +994,7 @@ void blinkGreenLed(){
 void blinkRedLed(){
   mcpwm_set_duty_type(MCPWM_UNIT_1,MCPWM_TIMER_0,MCPWM_OPR_A,MCPWM_DUTY_MODE_0);
   MCPWM1.timer[0].mode.start=2;
-}
+}*/
 
 void initI2CBusses(){
   I2C_HS.begin(SDA_HS, SCL_HS);
@@ -1007,7 +1023,7 @@ void initI2CBusses(){
   */
   
   //esp_err_t i2c_set_period(i2c_port_t i2c_num, int high_period, int low_period)
-  i2c_set_period(I2C_NUM_0,20, 20);// 1uSec Clock Period = 1 MHz
+  //i2c_set_period(I2C_NUM_0,20, 20);// 1uSec Clock Period = 1 MHz
   //i2c_set_period(I2C_NUM_0,20, 20);//Might need to be reduced, there may be glitches!
 
   //MS bus, used for accelerometer
@@ -1122,4 +1138,30 @@ void sampleHallTask( void * pvParameters){
   }
   xSemaphoreGive(httpMutexH);
   vTaskDelete(NULL);
+}
+void initIO(){
+  pinMode(_CTL_VCC3V3, OUTPUT);
+  pinMode(_CTL_ACCEL_PWR, OUTPUT);
+  pinMode(CTL_VDIVIDER, OUTPUT);
+  pinMode(_CTL_CHA1_PWR, OUTPUT);
+  pinMode(_CTL_CHA2_PWR, OUTPUT);
+  pinMode(_CTL_CHA3_PWR, OUTPUT);
+  pinMode(_CTL_CHA4_PWR, OUTPUT);
+  pinMode(IND_LED1,OUTPUT);  //Green LED
+  pinMode(IND_LED2, OUTPUT); //Red LED
+  pinMode(IND_LED3, OUTPUT); //Yellow LED
+  pinMode(REED_SWITCH, INPUT);
+
+  digitalWrite(IND_LED1, HIGH);
+  digitalWrite(IND_LED2, HIGH);
+  digitalWrite(IND_LED3, HIGH);
+}
+void initPower(){
+  digitalWrite(_CTL_VCC3V3,LOW); //3v3 on
+  digitalWrite(CTL_VDIVIDER, LOW);
+  delay(10);
+  digitalWrite(_CTL_CHA1_PWR, LOW);//CHA1 on
+  digitalWrite(_CTL_CHA2_PWR, LOW);//CHA2 On
+  digitalWrite(_CTL_ACCEL_PWR, LOW);//Accel On
+  delay(250);
 }
