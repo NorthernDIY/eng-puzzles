@@ -12,7 +12,7 @@ import pprint
 #random.seed(1)  # comment out this line to have real random data
 
 #Default IP and Port 
-params = {"IP":"127.0.0.1", "PORT": 20002}
+params = {"IP":"127.0.0.10", "PORT": 20002}
 bufferSize = 2000
 
 # Create a UDP socket at client side
@@ -52,7 +52,7 @@ timestamp_accel = 0
 # blank dictionaries for storing data -- These get converted from python dictionary to msgpack
 
 args = sys.argv
-params ={}
+
 alen = len(args)
 if alen==5:
 	for item in range(1,alen,2):
@@ -66,6 +66,8 @@ elif alen>1:
     sys.exit()
 else:
 	print("Using defaults: Address: %s & port: %d" %(str(params["IP"]), params["PORT"]))
+    
+
 ResetDictionary = {"Hello": 0.79,
                    "NumSens": NumSensors,
                    # Hall Sensor Stuff

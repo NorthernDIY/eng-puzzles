@@ -28,7 +28,7 @@
 //Board:  ESP32 Nano32S
 #define SIMULATE24SENSORS 0
 
-#define VERSIONSTRING "Mar9-PostDemoDay,Tasks,No-Z,Truncated-Ints"
+#define VERSIONSTRING "v0.79"
 
 //Wifi Credentials
 //#define G15_SSID "ECE4600_G15"
@@ -38,6 +38,8 @@
 #define G15_PASSWORD "hn7P8Egh"
 
 #define UDPBUFSIZE 1500
+#define MINSERVERVER 0.79
+#define SERVICEREQUIRED "MAZE_SERVER"
 //Server Endpoints
 /*
 #define G15_RESETURL "http://192.168.1.51:5000/r"//Just gives initial configuration data such as block size of data to be received during a session
@@ -182,6 +184,10 @@ JsonArray Ax,Ay,Az;
 
 WiFiClient client;
 WiFiUDP wifiUDPclient;
+
+int srvPort = 7777; //Default port is 7777, but this is actually set by service broadcast at startup
+IPAddress srvAddress;
+
 String stringifiedJson;//String that stores the json encoded data used on startup and caldata send
 String stringifiedJsonH;//String that stores the json encoded data special as this is run in a different task.
 String stringifiedJsonA;//String that stores the json encoded data special as this is run in a different task.
@@ -331,29 +337,29 @@ void setup()
   oled.clear();
   oled.set2X();
 
-  oled.print("AMazeThing!");
+  oled.print(F("AMazeThing!"));
   oled.set1X();
   oled.setCursor(45,2);
-  oled.print("v0.79");
+  oled.print(VERSIONSTRING);
 
 
   Serial.begin(230400);
   int freq = ESP.getCpuFreqMHz();
-  Serial.print("\nSystem Frequency: ");
+  Serial.print(F("\nSystem Frequency: "));
   Serial.println(freq);
-  Serial.print("Connecting to WiFi:");
+  Serial.print(F("Connecting to WiFi:"));
   Serial.print(ssid);
   WiFi.setSleep(false);
   WiFi.begin(ssid, password);
   oled.setCursor(0,3);
-  oled.print("WiFi: ");
+  oled.print(F("WiFi: "));
   while(WiFi.status() != WL_CONNECTED){
     delay(250);
     Serial.print(".");
   }
   oled.print(WiFi.localIP());
   oled.setCursor(0,4);
-  oled.print("Hall: ");
+  oled.print(F("Hall: "));
   
 
   //Initialize each Hall sensor -- Enters CAM mode and sets up Full Loop Register
@@ -364,35 +370,86 @@ void setup()
     }
   }
   if (okSensors){
-    oled.print("OK");
+    oled.print(F("OK"));
   }else{
-    oled.print("InitError");
+    oled.print(F("InitError"));
   }
   
   okSensors = true;
-  oled.setCursor(0,5);
-  oled.print("Accel: ");
+  oled.setCursor(63,4);
+  oled.print(F("Accel: "));
   //Initialize Accelerometer
   accel.begin(ACCEL_ADDRESS, I2C_MS);
   accel.setDataRate(LIS2DH12_ODR_400Hz);
   if (accel.isConnected()){
-    oled.print("OK");
+    oled.print(F("OK"));
   }else{
-    oled.print("InitError");
+    oled.print(F("InitError"));
   }
   //accel.setSensitivity();
 
   //Development Info
   Serial.printf("SETTINGS:,SamplePeriod:,%dms,ReportRate:,%dms,NumSensors:,%d,AvgSamples:,%d\n", HALLSAMPPERIOD,HALLREPORTTIME,NUMSENSORS,HALLAVERAGINGSAMPLES);
-  wifiUDPclient.beginPacket("10.42.0.1", 20002);
-  wifiUDPclient.print("HELLOEOWOEOEOWOWEOWE");
-  wifiUDPclient.endPacket();
-  oled.setCursor(0,6);
-  oled.print('Done');
+  oled.setCursor(0,5);
+  oled.print(F("Listen for Server..."));
   //TODO - Move to separate function.  Nothing below is a variable so no need to pass any data; Return value can be httpResponseCode  
   //Send reset to server along with block size information + other interesting things
 
-  while(1);
+  int trials = 0;
+  
+  wifiUDPclient.begin(7777);
+  
+  bool serviceMatch = false;
+  bool versionMatch = false;
+
+  while(!(serviceMatch && versionMatch)){
+    uint8_t buffer[321];
+    StaticJsonDocument<320> findServerDoc;
+    int pSize = wifiUDPclient.parsePacket();
+    if (pSize){
+      int len = wifiUDPclient.read(buffer,320);
+      DeserializationError de_error = deserializeMsgPack(findServerDoc, buffer);
+      if (de_error){
+        oled.setCursor(0,7);
+        oled.print(F("Bad BCAST Packet"));
+      }else{
+        oled.setCursor(0,5);
+        oled.clearToEOL();
+        String serviceTag = findServerDoc[F("SVC")];
+        serviceMatch = (serviceTag==SERVICEREQUIRED);
+        if (serviceMatch){
+          float verTag = findServerDoc[F("VER")];
+          versionMatch = (verTag>=MINSERVERVER);
+          srvPort = findServerDoc[F("PORT")];
+          oled.print(serviceTag);
+          oled.print(F(":"));
+          oled.setCursor(0,6);
+          oled.clearToEOL();
+          oled.print(F("@"));
+          oled.print(wifiUDPclient.remoteIP());
+          oled.setCursor(0,7);
+          oled.clearToEOL();
+          oled.print(F("V:"));
+          oled.print(verTag,2);
+          oled.setCursor(51,7);
+          oled.print(F("P:"));
+          oled.print(srvPort,DEC);
+          if (srvPort == 7777) oled.print(F("*"));
+        }
+      }
+    }
+  }
+  oled.print(F(" "));
+  for (int i = 0; i<4; i++){
+    oled.print(F("."));
+    delay(1000);
+  }
+  digitalWrite(IND_LED3, HIGH);
+  oled.clear();
+  oled.set2X();
+  oled.print(F("Waiting For\nStylusHome"));
+  //June 13/2022 End of Day  
+
   /*StaticJsonDocument<2048> startDoc;
   
   startDoc["Hello"] = VERSIONSTRING;
