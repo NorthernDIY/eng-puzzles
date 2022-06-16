@@ -112,6 +112,11 @@
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
 
+#include "SSD1306Ascii.h"
+#include "SSD1306AsciiWire.h"
+
+
+//Not used anymore
 //Libraries to enable Output of LOW FREQ PWM Using MCPWM Peripheral
 //#include "soc/mcpwm_reg.h"
 //#include "soc/mcpwm_struct.h"
@@ -143,7 +148,7 @@ String caldataServerName = G15_CALURL;
 //Debugging Things
 int skipCountHall = 0;  // Keep track of number of times through main loop without reporting
 int skipCountAccel = 0;  // Keep track of number of times through main loop without reporting
-
+int mySession = 0; //Tracks session ID as returned by server at Hello
 
 //Moving Average Struct to store Hall sensor readings
 typedef struct{
@@ -285,12 +290,11 @@ void sampleAccelTask( void * pvParameters);
 void sampleHallTask( void * pvParameters);
 void initIO();
 void initPower();
+void newSessionConnect();
+void findServer();
+void hallSensorZeroCal();
 
 
-
-//#include <Wire.h>
-#include "SSD1306Ascii.h"
-#include "SSD1306AsciiWire.h"
 
 // 0X3C+SA0 - 0x3C or 0x3D
 #define I2C_ADDRESS 0x3C
@@ -328,9 +332,10 @@ void setup()
 
   //These are likely way bigger than they need to be after judicious optimization they should be reevaluated
   stringifiedJson.reserve(4096);
-    // Initialize the serial port
+  
+  digitalWrite(IND_LED3, HIGH);
   initI2CBusses(); // Initialize the I2C communication ports
-    oled.begin(&Adafruit128x64, I2C_ADDRESS);
+  oled.begin(&Adafruit128x64, I2C_ADDRESS);
   oled.setContrast(1);
   //oled.setI2cClock(440000L);
   oled.setFont(font5x7);
@@ -382,107 +387,39 @@ void setup()
   accel.begin(ACCEL_ADDRESS, I2C_MS);
   accel.setDataRate(LIS2DH12_ODR_400Hz);
   if (accel.isConnected()){
-    oled.print(F("OK"));
+    oled.println(F("OK"));
   }else{
-    oled.print(F("InitError"));
+    oled.println(F("InitError"));
   }
   //accel.setSensitivity();
 
   //Development Info
   Serial.printf("SETTINGS:,SamplePeriod:,%dms,ReportRate:,%dms,NumSensors:,%d,AvgSamples:,%d\n", HALLSAMPPERIOD,HALLREPORTTIME,NUMSENSORS,HALLAVERAGINGSAMPLES);
-  oled.setCursor(0,5);
-  oled.print(F("Listen for Server..."));
+  
   //TODO - Move to separate function.  Nothing below is a variable so no need to pass any data; Return value can be httpResponseCode  
   //Send reset to server along with block size information + other interesting things
-
-  int trials = 0;
+  delay(1000);
   
-  wifiUDPclient.begin(7777);
-  
-  bool serviceMatch = false;
-  bool versionMatch = false;
-
-  while(!(serviceMatch && versionMatch)){
-    uint8_t buffer[321];
-    StaticJsonDocument<320> findServerDoc;
-    int pSize = wifiUDPclient.parsePacket();
-    if (pSize){
-      int len = wifiUDPclient.read(buffer,320);
-      DeserializationError de_error = deserializeMsgPack(findServerDoc, buffer);
-      if (de_error){
-        oled.setCursor(0,7);
-        oled.print(F("Bad BCAST Packet"));
-      }else{
-        oled.setCursor(0,5);
-        oled.clearToEOL();
-        String serviceTag = findServerDoc[F("SVC")];
-        serviceMatch = (serviceTag==SERVICEREQUIRED);
-        if (serviceMatch){
-          float verTag = findServerDoc[F("VER")];
-          versionMatch = (verTag>=MINSERVERVER);
-          srvPort = findServerDoc[F("PORT")];
-          oled.print(serviceTag);
-          oled.print(F(":"));
-          oled.setCursor(0,6);
-          oled.clearToEOL();
-          oled.print(F("@"));
-          oled.print(wifiUDPclient.remoteIP());
-          oled.setCursor(0,7);
-          oled.clearToEOL();
-          oled.print(F("V:"));
-          oled.print(verTag,2);
-          oled.setCursor(51,7);
-          oled.print(F("P:"));
-          oled.print(srvPort,DEC);
-          if (srvPort == 7777) oled.print(F("*"));
-        }
-      }
-    }
-  }
-  oled.print(F(" "));
-  for (int i = 0; i<4; i++){
-    oled.print(F("."));
-    delay(1000);
-  }
-  digitalWrite(IND_LED3, HIGH);
   oled.clear();
   oled.set2X();
   oled.print(F("Waiting For\nStylusHome"));
-  //June 13/2022 End of Day  
-
-  /*StaticJsonDocument<2048> startDoc;
+  hallSensorZeroCal();
+  delay(1500);
   
-  startDoc["Hello"] = VERSIONSTRING;
-  //startDoc["HallID"]="ALS31313KLEATR-500";
-  startDoc["HallID"]="ALS31300EEJASR-500";
-  startDoc["H_Samp_Int"]=HALLREPORTTIME;//This is the sample rate that we sample the AVERAGE, the actual sample rate is higher
-  startDoc["NumSens"] = NUMSENSORS;
-  startDoc["SIMULATED24"]= SIMULATE24SENSORS;
-  startDoc["Hbs"] = hallBlockSize;
-  startDoc["AccelID"] = "LIS2DH12";
-  startDoc["A_Samp_Int"] = ACCELSAMPPERIOD;
-  startDoc["Abs"] = accelBlockSize;
-  startDoc["Core Freq"]= freq;
-  //http.begin(client, resetServerName);
-  //http.addHeader("Content-Type", "application/json");
-  //String stringifiedJson;
-  //serializeMsgPack(startDoc, stringifiedJson);
-  //int httpResponseCode =http.POST(stringifiedJson);
-  //uint8_t retryInitialPostCount = 0;
-  //while (httpResponseCode!=200 && retryInitialPostCount<20){
-  //  httpResponseCode = http.POST(stringifiedJson);
-  //  delay(500);
-  //  retryInitialPostCount++;
-  //}
-  //if (httpResponseCode != 200){
-  //  offGreenLed();
-  //  blinkRedLed();
- //   Serial.println("Unable to reach Raspberry Pi Server, Make sure it's running!\nHalting!");
-  //  while(1);
-  //}
-  //http.end();
-  startDoc.clear();
-  */
+  oled.set1X();
+  oled.clear();
+  oled.setCursor(0,1);
+  oled.print(F("Listen for Server..."));
+  findServer();
+  delay(1500);
+  digitalWrite(IND_LED3, HIGH);
+  
+
+  //June 13/2022 End of Day  
+  
+  newSessionConnect();
+
+  
   //Initialize Global variables used in session loop //TODO - Move to local variables .....if reasonable to do so.  Likely to need lots of pass by value function calls...
   lastHallSampleTime = 0;
   lastHallReportTime = 0;
@@ -496,29 +433,14 @@ void setup()
     //sprintf(HzLabel[index], "Hz%u", index);
   }
   
-  //For the BiotSavart Constant
-  digitalWrite(IND_LED3, HIGH); //Turn on Yellow LED, Indicate waiting!
-  while(!digitalRead(REED_SWITCH)); //Wait for reed switch to be in place before gathering data
-  uint32_t sTime = millis();
-  uint32_t cTime=0;
-  int count = 0;
-  while(count<50){
-    cTime = millis();  
-    if((cTime - sTime)>=5){//We can read this faster than 6ms since it's only one sensor.
-      sTime = cTime;
-      readALS31300ADC(calSensorIndexLocation);
-      count++;
-    }
-  }
-  BiotSavartCalConstantX = sensors[calSensorIndexLocation].avgX;
-  BiotSavartCalConstantY = sensors[calSensorIndexLocation].avgY;
-  //BiotSavartCalConstantZ = sensors[calSensorIndexLocation].avgZ;
-  digitalWrite(IND_LED3, LOW);
+  
   
   Serial.println("G15 Instrumented Puzzle Initialized...\nReady state starts in 1 Sec");
   stringifiedJson="";
   delay(1000);
   //solidGreenLed();//Everything is ready to record data!
+  digitalWrite(IND_LED3, LOW);
+  digitalWrite(IND_LED1, HIGH);
 }
 
 //Main loop just waits for reed switch to activate
@@ -535,6 +457,7 @@ void loop()
       tTime = 0;
     }
     if (Triggered && ((millis() - tTime)>=REED_SWITCH_ACTIVATION_TIME)){
+      digitalWrite(IND_LED2, HIGH);
       beginSession();
     }
   }//End of While(1)
@@ -550,8 +473,8 @@ void IRAM_ATTR beginSession(){
   lastAccelSampleTime = 0;
   lastAccelReportTime = 0;
  
-  skipCountHall =0;//Reset the skip counter
-  hallPacketIndex = 0; //Reset the packet index for our next data block
+  //skipCountHall =0;//Reset the skip counter
+  //hallPacketIndex = 0; //Reset the packet index for our next data block
   skipCountAccel =0;
   accelPacketIndex = 0;
   //RESET packet indexes
@@ -630,7 +553,7 @@ void sendCalData(){
    }
   HTTPClient http;
   //StaticJsonDocument<2560> calDoc;
-  DynamicJsonDocument calDoc(2816);
+  StaticJsonDocument <2816>calDoc;
   calDoc["BSX"] = BiotSavartCalConstantX;
   calDoc["BSY"] = BiotSavartCalConstantY;
   //calDoc["BSZ"] = BiotSavartCalConstantZ;
@@ -643,19 +566,15 @@ void sendCalData(){
       calY.add(sensors[index].avgY);
       //calZ.add(sensors[index].avgZ);
   }
-
-  http.begin(client, caldataServerName);
-  http.addHeader("Content-Type", "application/json");
-  //String stringifiedJson;
-  serializeJson(calDoc, stringifiedJson);
-  //Serial.println(stringifiedJson);
-  //Send it.
-  int httpResponseCode = http.POST(stringifiedJson);
-  http.end();
-  //Serial.println("New Session!...Cal Data Sent");
-  //Serial.println(stringifiedJson);
+  uint8_t msgPackBuffer[1400];
+  
+  uint16_t bufLen = serializeMsgPack(calDoc,msgPackBuffer);
+  //Serial.println(bufLen);
+  wifiUDPclient.beginPacket(srvAddress,srvPort);
+  wifiUDPclient.write(msgPackBuffer,bufLen);
+  wifiUDPclient.endPacket();
   calDoc.clear();
-  stringifiedJson="";
+  
 }
 /*
 void IRAM_ATTR buildSendAccelPacket(uint32_t loopStartTime){
@@ -1221,4 +1140,137 @@ void initPower(){
   digitalWrite(_CTL_CHA2_PWR, LOW);//CHA2 On
   digitalWrite(_CTL_ACCEL_PWR, LOW);//Accel On
   delay(250);
+}
+
+void newSessionConnect(){
+  oled.set1X();
+  oled.clear();
+  oled.println(F("Contacting Server..."));
+  bool responseOK = false;
+  while(!responseOK){
+    StaticJsonDocument<500> startDoc;
+    startDoc["Hello"] = VERSIONSTRING;
+    startDoc["HST"]=HALLREPORTTIME;//This is the sample rate that we sample the AVERAGE, the actual sample rate is higher
+    startDoc["NumSens"] = NUMSENSORS;
+    startDoc["HBS"] = hallBlockSize;
+    startDoc["AST"] = ACCELSAMPPERIOD;
+    startDoc["ABS"] = accelBlockSize;
+    startDoc["HallZ"] = 0;
+    uint8_t msgPackBuffer[500];
+  
+    uint16_t bufLen = serializeMsgPack(startDoc,msgPackBuffer);
+    Serial.println(bufLen);
+    wifiUDPclient.beginPacket(srvAddress,srvPort);
+    wifiUDPclient.write(msgPackBuffer,bufLen);
+    wifiUDPclient.endPacket();
+    startDoc.clear();
+    delay(250);
+
+  
+    uint8_t buffer[100];
+    StaticJsonDocument<100> serverResponse;
+    int pSize = wifiUDPclient.parsePacket();
+    if (pSize){
+      int len = wifiUDPclient.read(buffer,100);
+      DeserializationError de_error = deserializeMsgPack(serverResponse, buffer);
+      if (de_error){
+        oled.print(F("Bad Greeting :("));
+      }else{
+        if (serverResponse.containsKey(F("ID"))){
+          mySession = serverResponse[F("ID")];
+          if (mySession>=0){
+            responseOK = true;
+          } 
+        }
+      }
+    }
+    delay(250);//Wait some time before trying again
+  }
+  oled.setCursor(0,0);
+  oled.clearToEOL();
+  oled.set2X();
+  oled.println(F("  Ready"));
+  oled.set2X();
+  oled.setCursor(62,6);
+  oled.print(F("#:"));
+  oled.print(mySession,DEC);
+}
+void findServer(){
+  wifiUDPclient.begin(7777);
+  
+  bool serviceMatch = false;
+  bool versionMatch = false;
+
+  while(!(serviceMatch && versionMatch)){
+    uint8_t buffer[400];
+    StaticJsonDocument<399> findServerDoc;
+    int pSize = wifiUDPclient.parsePacket();
+    if (pSize){
+      int len = wifiUDPclient.read(buffer,399);
+      DeserializationError de_error = deserializeMsgPack(findServerDoc, buffer);
+      if (de_error){
+        oled.setCursor(0,7);
+        oled.print(F("Bad BCAST Packet"));
+      }else{
+        oled.setCursor(0,4);
+        oled.clearToEOL();
+        String serviceTag = findServerDoc[F("SVC")];
+        serviceMatch = (serviceTag==SERVICEREQUIRED);
+        if (serviceMatch){
+          float verTag = findServerDoc[F("VER")];
+          versionMatch = (verTag>=MINSERVERVER);
+          srvPort = findServerDoc[F("PORT")];
+          srvAddress=wifiUDPclient.remoteIP();
+          oled.print(serviceTag);
+          oled.print(F(":"));
+          oled.setCursor(0,6);
+          oled.clearToEOL();
+          oled.print(F("@"));
+          oled.print(wifiUDPclient.remoteIP());
+          oled.setCursor(0,7);
+          oled.clearToEOL();
+          oled.print(F("V:"));
+          oled.print(verTag,2);
+          oled.setCursor(51,7);
+          oled.print(F("P:"));
+          oled.print(srvPort,DEC);
+          if (srvPort == 7777) oled.print(F("*"));
+        }
+      }
+    }
+  }
+  wifiUDPclient.begin(srvPort);//Start watching the specified port
+  
+}
+
+void hallSensorZeroCal(){
+  uint32_t sTime = millis();
+  uint32_t cTime=0;
+  oled.set1X();
+  oled.setCursor(0,5);
+  while(!digitalRead(REED_SWITCH)){ //Wait for reed switch to be in place before gathering data
+    sTime = millis();
+    if (sTime%1000 == 0){
+      oled.print(".");
+      delay(1);
+    }
+  }
+  
+  int count = 0;
+  while(count<50){
+    cTime = millis();  
+    if((cTime - sTime)>=5){//We can read this faster than 6ms since it's only one sensor.
+      sTime = cTime;
+      readALS31300ADC(calSensorIndexLocation);
+      count++;
+    }
+  }
+  BiotSavartCalConstantX = sensors[calSensorIndexLocation].avgX;
+  BiotSavartCalConstantY = sensors[calSensorIndexLocation].avgY;
+  //BiotSavartCalConstantZ = sensors[calSensorIndexLocation].avgZ;
+  oled.clear();
+  oled.set2X();
+  oled.println("   Hall");
+  oled.println(" Calibrate");
+  oled.println(" Complete!");
 }

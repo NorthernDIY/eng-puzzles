@@ -12,8 +12,8 @@ from datetime import datetime
 from enum import Enum
 from pprint import pprint
 import json
-import subprocess
-import keyboard
+#import subprocess
+
 #Things you might want to change
 #Network Settings (Defaults)
 localIP_d     = "127.0.0.1"# Localhost for now

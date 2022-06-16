@@ -26,6 +26,6 @@ while(1):
             print("\tTotal Size: (With Overhead +50B) ~: %d"%(len(serverResponse[0])+50))
             decoded = msgpack.unpackb(serverResponse[0])
             print("\t\tService Offered %s" %decoded["SVC"])
-            print("\t\tVersion %s" %decoded["VER"])
+            print("\t\tVersion %f" %decoded["VER"])
             print("\t\tPort %s" %decoded["PORT"])
             
