@@ -60,6 +60,7 @@ class msgType(Enum):
     HALL = 3
     ACCEL = 4
     CAL_HALL = 5
+    CHECK = 6
 
 def unpack(UDP_packet):
     message = None
@@ -89,6 +90,8 @@ def getMsgType(message):
             return msgType.END
         elif message.__contains__("BSX"):
             return msgType.CAL_HALL
+        elif message.__contains__("CHK"):
+            return msgType.CHECK
     else:
         print("Bad Packet Type!")
         return msgType.JUNK
@@ -264,6 +267,7 @@ try:# Try allows us to catch keyboard interrupt
         bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
     
         Packet = bytesAddressPair[0]
+        
         address = bytesAddressPair[1]
         unpacked = unpack(Packet)
         if unpacked != None:
@@ -271,8 +275,8 @@ try:# Try allows us to catch keyboard interrupt
             
             if (mType==msgType.START):#TODO - Associate SQL conns & cursors to each IP/Session
                 if not (activeSessions.__contains__(address[0])):
-                    print("New Session started at %s by %s"%(datetime.now(), address[0]))
                     sessionID +=1
+                    print("New Session #%d started at %s by %s"%(sessionID,datetime.now(), address[0]),flush=True)
                     activeSessions[address[0]] = sessionID
                     SIDresponse = {'ID':sessionID}
                     msgToClient = enc_msgpack(SIDresponse)
@@ -285,7 +289,7 @@ try:# Try allows us to catch keyboard interrupt
                     #endSession(lastSession) # marks session complete and permits data processing
                     sessionID +=1
                     activeSessions[address[0]] = sessionID
-                    print("New session at %s by %s"%(datetime.now(), address[0]))
+                    print("New session #%d at %s by %s"%(sessionID, datetime.now(), address[0]),flush=True)
                     SIDresponse = {'ID':activeSessions[address[0]]}
                     msgToClient = enc_msgpack(SIDresponse)
                     UDPServerSocket.sendto(msgToClient, address)
@@ -303,7 +307,7 @@ try:# Try allows us to catch keyboard interrupt
                 #pprint.pprint(unpacked)
 
             elif (mType==msgType.END):
-                print("Session #%d closed!" %(activeSessions[address[0]]))
+                print("Session #%d closed!" %(activeSessions[address[0]]), flush=True)
                 lastSessionID = activeSessions[address[0]]
                 sqlCmd = "INSERT INTO Params(SessionID,StartTime, IP, StopTime, ABS, HBS, AST, HST, NumSensors, FWVer, UseHZ ) VALUES ("+ str(sessionID) +", '" + str(sessionStartTimeDate) + "', '" + address[0] + "', '"+ str(datetime.now()) +"', " +str(ABSz) + ", " + str(HBSz) +", " + str(AST) +", " + str(HST) + ", " +str(NumSensors) + ", '" +str(FWVer)  +"'," +str(UseHZ) +");"
                 cursor.execute(sqlCmd)
@@ -315,16 +319,24 @@ try:# Try allows us to catch keyboard interrupt
                 byeResponse = {"OK": currHTime} #Send time stamp of first entry of last packet (probably wont be used)
                 byeBytes =enc_msgpack(byeResponse)
                 UDPServerSocket.sendto(byeBytes, address)
-
+            elif (mType==msgType.CHECK):
+                chkResponse = {"OK": 1}
+                chkBytes =enc_msgpack(chkResponse)
+                UDPServerSocket.sendto(chkBytes, address)
+                print("ESP checked server alive!")
             elif (mType==msgType.HALL):
-                print("H Data Rx'd")
+                print("H Data Rx'd (%d Bytes)"%Packet.__sizeof__())
+                #pprint(unpacked)
                 InsertHallData(unpacked)
 
             elif (mType==msgType.ACCEL):
-                print("A Data Rx'd")
+                print("A Data Rx'd (%d Bytes)"%Packet.__sizeof__())
+                #pprint(unpacked)
+                #print("\n\n",flush=True)
                 InsertAccelData(unpacked)
             elif (mType==msgType.CAL_HALL):
                 InsertHallCal(unpacked)
+                print("Cal Data Rx'd (%d Bytes)"%Packet.__sizeof__())
             else:
                 print("Bad Packet Rx'd from: %s" %address[0])
 

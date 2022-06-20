@@ -5,6 +5,7 @@ import netifaces
 VERSIONNUM = 0.79
 SERVICETXT = "MAZE_SERVER"
 BRDCASTPORT = 7777
+DEFAULTSERVICEPORT = 20002
 
 def getIFIPlist():#Works better on linux than other options...
     #https://www.delftstack.com/howto/python/get-ip-address-python/
@@ -35,6 +36,7 @@ def broadCastService(port, interval):
 
 
 if __name__== '__main__':
+    port = DEFAULTSERVICEPORT
     try:
         args=sys.argv
         alen=len(args)
@@ -47,8 +49,8 @@ if __name__== '__main__':
             print("Starting Service Broadcast (All Interfaces) every %d Seconds on Port: %d" %(interval,port))
             broadCastService(port, interval)
         else:
-            print("Starting Service Broadcast every 10 Seconds on Port: 7777")
-            broadCastService(7777, 10)
+            print("Starting Service Broadcast every 10 Seconds on Port: 7777, Target Port:%d"%port)
+            broadCastService(port, 10)
     except KeyboardInterrupt:
         print("Broadcast halted")
         sys.exit()
