@@ -25,14 +25,9 @@
  *      Expanded # sensor read up to 5
  */
 
-//Board:  ESP32 Nano32S
-#define SIMULATE24SENSORS 0
+//Board:  ESP32 Nano32
 
 #define VERSIONSTRING "v0.79"
-
-//Wifi Credentials
-//#define G15_SSID "ECE4600_G15"
-//#define G15_PASSWORD "ECE4600G15"
 
 #define G15_SSID "AMazeThing"
 #define G15_PASSWORD "hn7P8Egh"
@@ -40,34 +35,10 @@
 #define UDPBUFSIZE 1500
 #define MINSERVERVER 0.79
 #define SERVICEREQUIRED "MAZE_SERVER"
-//Server Endpoints
-/*
-#define G15_RESETURL "http://192.168.1.51:5000/r"//Just gives initial configuration data such as block size of data to be received during a session
+#define SERVICEBROADCASTPORT 7777
 
-#define G15_CALURL "http://192.168.1.51:5000/caldata"//Endpoint to post calibration data to, also initiates a new session
-//#define G15_SESSIONSTARTURL "http://172.17.2.23:5000/newSession"//Posting to this initiates a new session on the server (which reset used to do)
+#define SERVERCHECKTIME 2500
 
-#define G15_HALLURL "http://192.168.1.51:5000/h"
-#define G15_ACCURL "http://192.168.1.51:5000/a"
-*/
-
-
-#define G15_RESETURL "http://172.17.2.112:5000/r"//Just gives initial configuration data such as block size of data to be received during a session
-
-#define G15_CALURL "http://172.17.2.112:5000/caldata"//Endpoint to post calibration data to, also initiates a new session
-
-#define G15_HALLURL "http://172.17.2.112:5000/h"
-#define G15_ACCURL "http://172.17.2.112:5000/a"
-
-
-/*#define G15_RESETURL "http://172.17.2.23:5000/r"//Just gives initial configuration data such as block size of data to be received during a session
-
-#define G15_CALURL "http://172.17.2.23:5000/caldata"//Endpoint to post calibration data to, also initiates a new session
-//#define G15_SESSIONSTARTURL "http://172.17.2.23:5000/newSession"//Posting to this initiates a new session on the server (which reset used to do)
-
-#define G15_HALLURL "http://172.17.2.23:5000/h"
-#define G15_ACCURL "http://172.17.2.23:5000/a"
-*/
 #define HOME_SWITCH_ACTIVATION_TIME 300
 
 //Hall Sensor Matrix Properties
@@ -76,19 +47,44 @@
 #define HALLSAMPPERIOD 25 //4.5ms is absolute min delay between samples
 #define HALLREPORTTIME 200 //Report time interval *THIS SHOULD BE A MULTIPLE OF HALLSAMPPERIOD*
 #define BLOCKSIZEHALL  10 //10 may have fragmentation issues that cause hiccups!
-//#define HTHRESHOLD 4 //Hall values less than this are reported as 0
+
 //Accelerometer Properties
 #define ACCELSAMPPERIOD 40// 1/(40/1000) = 25 Hz Sample Rate --> Nyquist 20Hz
 #define BLOCKSIZEACCEL 40
 
 //ALS31313 Hall Sensor parameters (from datasheet)
-#define EEPROMDEFAULT 0b00000000000000000000001111100000
+#define EEPROMDEFAULT     0b00000000000000000000001111100000
 #define EEPROMADDRESSMASK 0b11111111111111100000001111111111
 #define CAM_REGISTER 0x35
 //#define CAM_KEY 0x2C41354 //Was incorrect in example code //ALS31313 Sensors
 #define CAM_KEY 0x2C413534 //ALS31300 Sensors
-#define SERVERCHECKTIME 2500
+
 #define MSGBUFFERSIZE 1500 //Size of char buffers to serialze msgpack data into (2x buffers)
+
+#define KEY_HALLTIME "TH"
+#define KEY_ACCELTIME "TA"
+#define KEY_ENDSESSION "BYE"
+#define KEY_STARTSESSION "Hello"
+#define KEY_BIOSAVX "BSX"
+#define KEY_BIOSAVY "BSY"
+#define KEY_HCALX "H_CAL_X"
+#define KEY_HCALY "H_CAL_Y"
+#define KEY_SRVCHECK "CHK"
+#define KEY_SRVOK "OK"
+#define KEY_SESSIONID "ID"
+#define KEY_REALSTART "S"
+#define KEY_REALSTOP "E"
+#define KEY_HALLSAMPLETIME "HST"
+#define KEY_NUMHALLSENSORS "NumSens"
+#define KEY_HALLBLOCKSIZE "HBS"
+#define KEY_ACCELSAMPLETIME "AST"
+#define KEY_ACCELBLOCKSIZE "ABS"
+#define KEY_HALLUSESZ "HallZ"
+
+#define KEY_SERVICETYPE "SVC"
+#define KEY_SERVICEVER "VER"
+#define KEY_SERVICEPORT "PORT"
+
 
 //To speed up final project computational speed, uncomment the following!
 //This will require additional Flash/Ram, but can provide substantial speed increases.
@@ -99,7 +95,7 @@
 #include <Wire.h> //Provides I2C
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <HTTPClient.h> //Used for HTTP Comms to server
+//#include <HTTPClient.h> //Used for HTTP Comms to server
 #include <ArduinoJson.h> //Data sent is serialized in JSON, this library gives us easy access to that data type
 #include "SparkFun_LIS2DH12.h"//Accelerometer for tremor identification
 #include <esp_task_wdt.h>
@@ -122,7 +118,6 @@ SPARKFUN_LIS2DH12 accel;
 const char* ssid = G15_SSID;
 const char* password = G15_PASSWORD;
 
-
 // Return values of endTransmission in the Wire library
 #define kNOERROR 0
 #define kDATATOOLONGERROR 1
@@ -130,9 +125,7 @@ const char* password = G15_PASSWORD;
 #define kRECEIVEDNACKONDATAERROR 3
 #define kOTHERERROR 4
 
-//Debugging Things
-int skipCountHall = 0;  // Keep track of number of times through main loop without reporting
-int skipCountAccel = 0;  // Keep track of number of times through main loop without reporting
+
 int mySession = -1; //Tracks session ID as returned by server at Hello
 int lastSession = -1;//Track last session for display purposes
 bool serverOK = false;// Periodically verify server alive-edness, store result here...
@@ -161,7 +154,7 @@ int accelTimeStamp = 0;
 int hallPacketIndex = 0;
 int accelPacketIndex = 0;
 
-//Number of matrix scans to bundle into a packet
+//Number of matrix scans/Accelerometer reads to bundle into a packet
 const uint8_t hallBlockSize = BLOCKSIZEHALL;
 const uint8_t accelBlockSize = BLOCKSIZEACCEL;
 
@@ -178,7 +171,7 @@ WiFiClient client;
 WiFiUDP wifiUDPclient;
 
 int srvPort = 20002; //Default port is 20002, but this is actually set by service broadcast at startup
-const int bcastPort = 7777; //Port that device listens to service broadcasts on.
+const int bcastPort = SERVICEBROADCASTPORT; //Port that device listens to service broadcasts on.
 IPAddress srvAddress;
 
 //String stringifiedJson;//String that stores the json encoded data used on startup and caldata send
@@ -337,31 +330,31 @@ void setup()
   oled.clear();
   oled.set2X();
 
-  oled.print(F("AMazeThing"));
+  oled.print("AMazeThing");
   oled.set1X();
   oled.setCursor(45,2);
   oled.print(VERSIONSTRING);
 
   setCpuFrequencyMhz(240);
   delay(10);
-  Serial.begin(230400);
+  //Serial.begin(230400);
   int freq = ESP.getCpuFreqMHz();
   //int freq = getXtalFrequencyMhz();
-  Serial.print(F("\nSystem Frequency: "));
-  Serial.println(freq);
-  Serial.print(F("Connecting to WiFi:"));
-  Serial.print(ssid);
+  //Serial.print(F("\nSystem Frequency: "));
+  //Serial.println(freq);
+  //Serial.print(F("Connecting to WiFi:"));
+  //Serial.print(ssid);
   WiFi.setSleep(false);
   WiFi.begin(ssid, password);
   oled.setCursor(0,3);
-  oled.print(F("WiFi: "));
+  oled.print("WiFi: ");
   while(WiFi.status() != WL_CONNECTED){
     delay(250);
-    Serial.print(".");
+    //Serial.print(".");
   }
   oled.print(WiFi.localIP());
   oled.setCursor(0,4);
-  oled.print(F("Hall: "));
+  oled.print("Hall: ");
   
 
   //Initialize each Hall sensor -- Enters CAM mode and sets up Full Loop Register
@@ -372,26 +365,26 @@ void setup()
     }
   }
   if (okSensors){
-    oled.print(F("OK"));
+    oled.print("OK");
   }else{
-    oled.print(F("InitError"));
+    oled.print("InitError");
   }
   
   okSensors = true;
   oled.setCursor(63,4);
-  oled.print(F("Accel: "));
+  oled.print("Accel: ");
   //Initialize Accelerometer
   accel.begin(ACCEL_ADDRESS, I2C_MS);
   accel.setDataRate(LIS2DH12_ODR_400Hz);
   if (accel.isConnected()){
-    oled.println(F("OK"));
+    oled.println("OK");
   }else{
-    oled.println(F("InitError"));
+    oled.println("InitError");
   }
   //accel.setSensitivity();
 
   //Development Info
-  Serial.printf("SETTINGS:,SamplePeriod:,%dms,ReportRate:,%dms,NumSensors:,%d,AvgSamples:,%d\n", HALLSAMPPERIOD,HALLREPORTTIME,NUMSENSORS,HALLAVERAGINGSAMPLES);
+  //Serial.printf("SETTINGS:,SamplePeriod:,%dms,ReportRate:,%dms,NumSensors:,%d,AvgSamples:,%d\n", HALLSAMPPERIOD,HALLREPORTTIME,NUMSENSORS,HALLAVERAGINGSAMPLES);
   
   delay(1000);
   hallSensorZeroCal();
@@ -413,7 +406,7 @@ void setup()
     //sprintf(HzLabel[index], "Hz%u", index);
   }
   
-  Serial.println("AMazeThing...\nReady state starts in 1 Sec");
+  //Serial.println("AMazeThing...\nReady state starts in 1 Sec");
   //stringifiedJson="";
   delay(1000);
   ledGreenOn();
@@ -430,7 +423,7 @@ void CheckReady(){
     ledYellowOff();
     ledRedOff();
     oled.set2X();
-    oled.print(("  Ready!"));
+    oled.print("  Ready!");
     oled.set1X();
     oled.setCursor(0,7);
     oled.print("Last Session: #");
@@ -443,25 +436,25 @@ void CheckReady(){
       WiFi.disconnect();
       WiFi.begin(ssid, password);
       oled.setCursor(0,7);
-      oled.print(F("WiFi: "));
+      oled.print("WiFi: ");
       while(WiFi.status() != WL_CONNECTED){
         delay(250);
-        Serial.print(".");
+        //Serial.print(".");
       }
       oled.setCursor(6,7);
       oled.print("Re-Connected");
     }
     oled.setCursor(0,0);
     oled.set2X();
-    oled.println(F("   Check"));
-    oled.println(F("  Server!"));
+    oled.println("   Check");
+    oled.println("  Server!");
     oled.set1X();
     oled.setCursor(0,6);
-    oled.println(F("  Searching..."));
+    oled.println("  Searching...");
     findServer(false);
     oled.setCursor(0,6);
     oled.clearToEOL();
-    oled.println(F("  Found!"));
+    oled.println("  Found!");
     wifiUDPclient.begin(srvPort);//Start watching server specified port
   }
 }
@@ -470,12 +463,12 @@ void CheckServerAlive(){
   oled.set1X();
   oled.setCursor(120,7);
   oled.print(".");
-  if (srvAddress != NULL){
+  if ((uint32_t)srvAddress != 0){
     wifiUDPclient.begin(srvPort);
     int trials = 0;
     while(!serverOK && trials<30){
       StaticJsonDocument <100> chkDoc;
-      chkDoc[F("CHK")] = 1;
+      chkDoc[KEY_SRVCHECK] = 1;
       uint8_t buffer[100];
       uint8_t msgLen = serializeMsgPack(chkDoc,buffer);
       wifiUDPclient.beginPacket(srvAddress,srvPort);
@@ -488,8 +481,8 @@ void CheckServerAlive(){
         int len = wifiUDPclient.read(buffer,100);
         DeserializationError de_error = deserializeMsgPack(serverResponse, buffer);
         if (de_error){
-          oled.print(F("Bad packet Rx'd"));
-        }else if (serverResponse.containsKey(F("OK")))serverOK = true;
+          oled.print("Bad packet Rx'd");
+        }else if (serverResponse.containsKey(KEY_SRVOK))serverOK = true;
       }else{
         trials++;
       }
@@ -499,8 +492,8 @@ void CheckServerAlive(){
     if (trials>30){
       oled.clear();
       oled.set2X();
-      oled.println(F(" Server\n  Lost"));
-      oled.println(F("Searching."));
+      oled.println(" Server\n  Lost");
+      oled.println("Searching.");
       bool find_server = findServer(false);
     }
   }
@@ -554,10 +547,10 @@ void IRAM_ATTR beginSession(){
  
   sendCalData();//This could change if for example, maze is moved after powerup
   //Populate the initial time stamps, avoids repeated if logic in buildSendPacket
-  hallDoc["TH"] = hallTimeStamp;
-  hallDoc["ID"] = mySession;
-  accelDoc["TA"] =accelTimeStamp;
-  accelDoc["ID"] = mySession;
+  hallDoc[KEY_HALLTIME] = hallTimeStamp;
+  hallDoc[KEY_SESSIONID] = mySession;
+  accelDoc[KEY_ACCELTIME] =accelTimeStamp;
+  accelDoc[KEY_SESSIONID] = mySession;
   //To avoid blank first Accel packet
   Ax = accelDoc.createNestedArray("x");
   Ay = accelDoc.createNestedArray("y");
@@ -617,7 +610,7 @@ void endSession(){
     xSemaphoreGive(UDPMutexH);
     xSemaphoreGive(UDPMutexA);
     StaticJsonDocument <50> byeDoc;
-    byeDoc["Bye"] = mySession;
+    byeDoc[KEY_ENDSESSION] = mySession;
     uint8_t buffer[50];
     uint8_t msgLen = serializeMsgPack(byeDoc,buffer);
     wifiUDPclient.beginPacket(srvAddress,srvPort);
@@ -644,12 +637,12 @@ void sendCalData(){
     }     
    }
   StaticJsonDocument <2816>calDoc;
-  calDoc["BSX"] = BiotSavartCalConstantX;
-  calDoc["BSY"] = BiotSavartCalConstantY;
+  calDoc[KEY_BIOSAVX] = BiotSavartCalConstantX;
+  calDoc[KEY_BIOSAVY] = BiotSavartCalConstantY;
   //calDoc["BSZ"] = BiotSavartCalConstantZ;
 
-  JsonArray calX = calDoc.createNestedArray("H_CAL_X");
-  JsonArray calY = calDoc.createNestedArray("H_CAL_Y");
+  JsonArray calX = calDoc.createNestedArray(KEY_HCALX);
+  JsonArray calY = calDoc.createNestedArray(KEY_HCALY);
   //JsonArray calZ = calDoc.createNestedArray("H_CAL_Z");
   for (int index = 0; index<NUMSENSORS;index++){
       calX.add(sensors[index].avgX);
@@ -685,7 +678,7 @@ void IRAM_ATTR scanHallMatrix(){
 // readALS31300ADC
 // Assumes hall sensor is in full loop mode.
 void IRAM_ATTR readALS31300ADC(uint8_t index){
-//void readALS31300ADC(uint8_t index){
+  const uint32_t requestSize = 8;
   MASensor* currSensor = &sensors[index];  //This curses us with -> below.  TODO FIX THIS UP
   
   //Subtract fromt the total, the last value saved at this location in our ring buffer
@@ -695,7 +688,7 @@ void IRAM_ATTR readALS31300ADC(uint8_t index){
         
   // Start the read and request 8 bytes
   // which are the contents of register 0x28 and 0x29
-  I2C_HS.requestFrom(currSensor->address, 8);
+  I2C_HS.requestFrom(currSensor->address, requestSize);
   // Read the first 4 bytes which are the contents of register 0x28
   uint32_t value0x28 = I2C_HS.read() << 24;
   value0x28 += I2C_HS.read() << 16;
@@ -830,8 +823,8 @@ void powerOnSensors_useDividerAddresses(){
 void enterCam(uint8_t busAddress, uint32_t magicKey){
   uint16_t wireError = write(busAddress, CAM_REGISTER, magicKey);
   if (wireError != kNOERROR){
-    Serial.print("Error while trying to enter customer access mode for sensor @0x");
-    Serial.print(busAddress,HEX);
+    //Serial.print("Error while trying to enter customer access mode for sensor @0x");
+    //Serial.print(busAddress,HEX);
     //Serial.print("\terror = ");
     //Serial.println(wireError);
   }else{
@@ -854,8 +847,8 @@ bool initSensor(uint8_t index){
   uint16_t error = read(busAddress, 0x27, value0x27);
     if (error != kNOERROR)
     {
-        Serial.print("Unable to read the ALS31300. error = ");
-        Serial.println(error);
+        //Serial.print("Unable to read the ALS31300. error = ");
+        //Serial.println(error);
         sensorOk = false;
     }
 
@@ -868,8 +861,8 @@ bool initSensor(uint8_t index){
     error = write(busAddress, 0x27, value0x27);
     if (error != kNOERROR)
     {
-        Serial.print("Unable to write to the ALS31300. error = ");
-        Serial.println(error);
+        //Serial.print("Unable to write to the ALS31300. error = ");
+        //Serial.println(error);
         sensorOk = false;
     }
 
@@ -901,34 +894,7 @@ bool initSensor(uint8_t index){
 
 void initI2CBusses(){
   I2C_HS.begin(SDA_HS, SCL_HS);
-  I2C_HS.setClock(1000000);//Doesn't actually set clock to 1MHz though... see below!
-  /*   >>>According the the ESP32 technical reference manual<<<<<
-  * For APB of 80MHz, I2C clock is 80 MHz / (SCL_LOW_LEVEL_CYCLES + SCL_HIGH_LEVEL_CYCLES)
-  * SCL_LOW_LEVEL_CYCLES = 1 + I2C_SCL_LOW_PERIOD (Above sets I2C_SCL_LOW_PERIOD = 50)
-  * SCL_HIGH_LEVEL_CYCLES = I2C_SCL_FILTER_THRES + I2C_SCL_HIGH_PERIOD (Above sets I2C_SCL_HIGH_PERIOD = 50)
-  * >>>By Default, I2C_SCL_FILTER_THRES is set to 7 as per driver/i2c.c<<<
-  * 
-  * Therefore clock rate SHOULD BE:
-  *     80MHz / (51 + 57) = 740 KHz
-  * 
-  * When measured with LA1034 Logic Analyzer (100MHz Sample rate, Logic Threshold 1.30V)
-  *    SCL Period is 1.76uSec, which translates to 568 KHz
-  * 
-  * Setting LOW/HIGH Periods to 20, 20, SHOULD BE:
-  *   80MHz / (21 + 27) = 1.6666 MHz
-  *
-  * When measured with LA1034 Logic Analyzer (100MHz Sample rate, Logic Threshold 1.30V)
-  *    SCL Period is 1.00uSec, which translates to 1MHz
-  * 
-  *     10 CLOCK CYCLES: 10.25uSec
-  *       570nSec Low (Sample size 1)
-  *       460nSec High (Sample size 1)
-  */
-  
-  //esp_err_t i2c_set_period(i2c_port_t i2c_num, int high_period, int low_period)
-  //i2c_set_period(I2C_NUM_0,30, 30);// 1uSec Clock Period = 1 MHz
-  //i2c_set_period(I2C_NUM_0,20, 20);//Might need to be reduced, there may be glitches!
-
+  I2C_HS.setClock(1000000);//TODO - Verify Clock Rate with Scope/LA
   //MS bus, used for accelerometer
   I2C_MS.begin(SDA_MS, SCL_MS);
   I2C_MS.setClock(400000);//Pretty close to 400KHz as verified by LA1034
@@ -974,7 +940,7 @@ void IRAM_ATTR sampleAccelTask( void * pvParameters){
       accelPacketIndex = 0;//reset the sample index within the packet.
       accelDoc.clear();//Clear out old information in the Json Structure.
       accelTimeStamp +=(accelBlockSize*ACCELSAMPPERIOD);//Increment the timestamp by the block size
-      accelDoc["TA"] =  accelTimeStamp;//Prepend the timestamp of the first next sample to the JSON document
+      accelDoc[KEY_ACCELTIME] =  accelTimeStamp;//Prepend the timestamp of the first next sample to the JSON document
       //Recreate the nested arrays for next time
       Ax = accelDoc.createNestedArray("x");
       Ay = accelDoc.createNestedArray("y");
@@ -984,7 +950,7 @@ void IRAM_ATTR sampleAccelTask( void * pvParameters){
 
     }else{
       if (accelPacketIndex==0){
-        accelDoc["S"]= millis();
+        accelDoc[KEY_REALSTART]= millis();
       }
       accelDoc["x"].add(accel.getX());
       accelDoc["y"].add(accel.getY());
@@ -997,7 +963,7 @@ void IRAM_ATTR sampleAccelTask( void * pvParameters){
       //vTaskDelay(ACCELSAMPPERIOD);
       xTaskDelayUntil(&xLastRunTime, xTaskDelayTimeA);
       //Deadlines are missed but I'm not sure we care in the end
-    }else accelDoc["E"]= millis();
+    }else accelDoc[KEY_REALSTOP]= millis();
   }
   xSemaphoreGive(UDPMutexA);
   vTaskDelete(NULL);
@@ -1031,13 +997,13 @@ void IRAM_ATTR sampleHallTask( void * pvParameters){
         hallDoc.clear();
         hallPacketIndex = 0; //Reset the packet index for our next data block
         hallTimeStamp +=(hallBlockSize*HALLREPORTTIME); //Increment the timestamp by the blocksize
-        hallDoc["TH"] =  hallTimeStamp; //Set the starting timestamp of the next packet
+        hallDoc[KEY_HALLTIME] =  hallTimeStamp; //Set the starting timestamp of the next packet
         dataReady = false;
         xSemaphoreGive(hMutex);
         }else{//Add, we can add the hall sensor samples to the packet
           //int st = micros();
           if (hallPacketIndex==0){
-            hallDoc["S"]= millis();
+            hallDoc[KEY_REALSTART]= millis();
           }
           //Add the nested arrays to the JSON doc for this sample
           Hx[hallPacketIndex] = hallDoc.createNestedArray(HxLabel[hallPacketIndex]);
@@ -1062,7 +1028,7 @@ void IRAM_ATTR sampleHallTask( void * pvParameters){
       xDeadlineMissed = xTaskDelayUntil(&xLastRunTime, xTaskDelayTimeH);
       
       //vTaskDelay(HALLSAMPPERIOD);
-    }else hallDoc["E"]= millis();
+    }else hallDoc[KEY_REALSTOP]= millis();
   }
   xSemaphoreGive(UDPMutexH);
   vTaskDelete(NULL);
@@ -1098,16 +1064,16 @@ void newSessionConnect(){
   //Send one hello, and wait for a response for a while....two hellos can mean a double session start
   oled.set1X();
   oled.clear();
-  oled.println(F("Contacting Server..."));
+  oled.println("Contacting Server...");
   bool responseOK = false;
   StaticJsonDocument<500> startDoc;
-  startDoc["Hello"] = VERSIONSTRING;
-  startDoc["HST"]=HALLREPORTTIME;//This is the sample rate that we sample the AVERAGE, the actual sample rate is higher
-  startDoc["NumSens"] = NUMSENSORS;
-  startDoc["HBS"] = hallBlockSize;
-  startDoc["AST"] = ACCELSAMPPERIOD;
-  startDoc["ABS"] = accelBlockSize;
-  startDoc["HallZ"] = 0;
+  startDoc[KEY_STARTSESSION] = VERSIONSTRING;
+  startDoc[KEY_HALLSAMPLETIME]=HALLREPORTTIME;//This is the sample rate that we sample the AVERAGE, the actual sample rate is higher
+  startDoc[KEY_NUMHALLSENSORS] = NUMSENSORS;
+  startDoc[KEY_HALLBLOCKSIZE] = hallBlockSize;
+  startDoc[KEY_ACCELSAMPLETIME] = ACCELSAMPPERIOD;
+  startDoc[KEY_ACCELBLOCKSIZE] = accelBlockSize;
+  startDoc[KEY_HALLUSESZ] = 0;
   uint8_t msgPackBuffer[500];
   uint16_t bufLen = serializeMsgPack(startDoc,msgPackBuffer);
   //Serial.println(bufLen);
@@ -1125,10 +1091,10 @@ void newSessionConnect(){
       int len = wifiUDPclient.read(buffer,100);
       DeserializationError de_error = deserializeMsgPack(serverResponse, buffer);
       if (de_error){
-        oled.print(F("Bad Greeting :("));
+        oled.print("Bad Greeting :(");
       }else{
-        if (serverResponse.containsKey(F("ID"))){
-          mySession = serverResponse[F("ID")];
+        if (serverResponse.containsKey(KEY_SESSIONID)){
+          mySession = serverResponse[KEY_SESSIONID];
           if (mySession>=0){
             responseOK = true;
           } 
@@ -1142,17 +1108,17 @@ void newSessionConnect(){
     oled.setCursor(0,0);
     oled.clearToEOL();
     oled.set2X();
-    oled.println(F("  Session\n   Active"));
+    oled.println("  Session\n   Active");
     oled.set2X();
     oled.setCursor(62,6);
-    oled.print(F("#:"));
+    oled.print("#:");
     oled.print(mySession,DEC);
   }else{
     oled.clear();
     oled.set2X();
-    oled.println(F("  Error!"));
-    oled.println(F("  Server"));
-    oled.println(F(" Timeout"));
+    oled.println("  Error!");
+    oled.println("  Server");
+    oled.println(" Timeout");
     oled.set1X();
     oled.setCursor(0,7);
     oled.print("Stylus Wait");
@@ -1166,7 +1132,7 @@ bool findServer(bool updateDisplay){
   if (updateDisplay){
     oled.set1X();
     oled.clear();
-    oled.print(F("Listen for Server..."));
+    oled.print("Listen for Server...");
     oled.setCursor(0,1);
   }
   wifiUDPclient.begin(bcastPort);
@@ -1184,39 +1150,39 @@ bool findServer(bool updateDisplay){
       if (de_error){
         if (updateDisplay){
           oled.setCursor(0,7);
-          oled.print(F("Bad BCAST Packet"));
+          oled.print("Bad BCAST Packet");
         }
       }else{
         if (updateDisplay){
           oled.setCursor(0,4);
           oled.clearToEOL();
         }
-        String serviceTag = findServerDoc[F("SVC")];
+        String serviceTag = findServerDoc[KEY_SERVICETYPE];
         serviceMatch = (serviceTag==SERVICEREQUIRED);
         if (serviceMatch){
-          float verTag = findServerDoc[F("VER")];
+          float verTag = findServerDoc[KEY_SERVICEVER];
           versionMatch = (verTag>=MINSERVERVER);
-          srvPort = findServerDoc[F("PORT")];
+          srvPort = findServerDoc[KEY_SERVICEPORT];
           srvAddress=wifiUDPclient.remoteIP();
           serverFound = true;
           if (updateDisplay){
             oled.print(serviceTag);
-            oled.print(F(":"));
+            oled.print(":");
             oled.setCursor(0,6);
             oled.clearToEOL();
-            oled.print(F("@"));
+            oled.print("@");
             oled.print(wifiUDPclient.remoteIP());
             oled.setCursor(0,7);
             oled.clearToEOL();
-            oled.print(F("V:"));
+            oled.print("V:");
             oled.print(verTag,2);
             oled.setCursor(51,7);
-            oled.print(F("P:"));
+            oled.print("P:");
             oled.print(srvPort,DEC);
-            if (srvPort == 7777) oled.print(F("*"));
+            if (srvPort == SERVICEBROADCASTPORT ) oled.print("(!)");
             oled.setCursor(0,1);
             oled.clearToEOL();
-            oled.print(F("Server Found!"));
+            oled.print("Server Found!");
           }
         }
       }
@@ -1228,7 +1194,7 @@ bool findServer(bool updateDisplay){
 void hallSensorZeroCal(){
   oled.clear();
   oled.set2X();
-  oled.print(F("Waiting For\nStylusHome"));
+  oled.print("Waiting For\nStylusHome");
   uint32_t sTime = millis();
   uint32_t cTime=0;
   oled.set1X();
