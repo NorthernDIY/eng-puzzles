@@ -1,3 +1,4 @@
+#!/bin/python3
 #Based off https://pythontic.com/modules/socket/udp-client-server-example
 
 import socket, msgpack, sqlite3, os
@@ -13,12 +14,22 @@ from enum import Enum
 from pprint import pprint
 import json
 import subprocess
+import platform
 #import keyboard
 #Things you might want to change
 #Network Settings (Defaults)
 localIP_d     = "127.0.0.1"# Localhost for now
 localPort_d   = 20002
 bufferSize_d  = 20000
+
+"""
+Todo:	-Fix missing RawDat directory error
+		-Detect current OS vs Last OS at startup and autoreset if different (Helpful for development)
+		-Watch Session ID of incoming packet and discard if not associated with IP (Basic anti-spoofing)
+		-Figure out how to close out sessions after some time of no activity --or- when next session started by same IP
+		-Netifaces get all interfaces, no joke stop skipping things randomly
+		
+"""
 
 #FileName Things
 db_RawDir = '/RawDat/'
@@ -325,12 +336,14 @@ try:# Try allows us to catch keyboard interrupt
                 UDPServerSocket.sendto(chkBytes, address)
                 print("ESP checked server alive!")
             elif (mType==msgType.HALL):
-                print("H Data Rx'd (%d Bytes)"%Packet.__sizeof__())
+                print("H Data Rx'd (%d Bytes)"%Packet.__sizeof__(), end = "")
+                print("\t Start = %d\t End = %d" %(unpacked["S"], unpacked["E"]))
                 #pprint(unpacked)
                 InsertHallData(unpacked)
 
             elif (mType==msgType.ACCEL):
-                print("A Data Rx'd (%d Bytes)"%Packet.__sizeof__())
+                print("A Data Rx'd (%d Bytes)"%Packet.__sizeof__(), end ="")
+                print("\t Start = %d\t End = %d" %(unpacked["S"], unpacked["E"]))
                 #pprint(unpacked)
                 #print("\n\n",flush=True)
                 InsertAccelData(unpacked)
