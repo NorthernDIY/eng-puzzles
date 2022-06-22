@@ -33,9 +33,7 @@
 #define G15_PASSWORD "hn7P8Egh"
 
 #define UDPBUFSIZE 1500
-#define MINSERVERVER 0.79
-#define SERVICEREQUIRED "MAZE_SERVER"
-#define SERVICEBROADCASTPORT 7777
+
 
 #define SERVERCHECKTIME 2500
 
@@ -61,14 +59,21 @@
 
 #define MSGBUFFERSIZE 1500 //Size of char buffers to serialze msgpack data into (2x buffers)
 
+//Server Properties to look for (and where to look)
+#define MINSERVERVER 0.79
+#define SERVICEREQUIRED "MAZE_SERVER"
+#define SERVICEBROADCASTPORT 7777
+//MSGPACK (JSONDOC) KEYS
 #define KEY_HALLTIME "TH"
 #define KEY_ACCELTIME "TA"
-#define KEY_ENDSESSION "BYE"
+#define KEY_ENDSESSION "Bye"
 #define KEY_STARTSESSION "Hello"
 #define KEY_BIOSAVX "BSX"
 #define KEY_BIOSAVY "BSY"
+#define KEY_BIOSAVZ "BSZ"
 #define KEY_HCALX "H_CAL_X"
 #define KEY_HCALY "H_CAL_Y"
+#define KEY_HCALZ "H_CAL_Z"
 #define KEY_SRVCHECK "CHK"
 #define KEY_SRVOK "OK"
 #define KEY_SESSIONID "ID"
@@ -95,20 +100,17 @@
 #include <Wire.h> //Provides I2C
 #include <WiFi.h>
 #include <WiFiUdp.h>
-//#include <HTTPClient.h> //Used for HTTP Comms to server
-#include <ArduinoJson.h> //Data sent is serialized in JSON, this library gives us easy access to that data type
+#include <ArduinoJson.h> //Data sent is serialized in MSGPACK, this library gives us easy access to that data type
 #include "SparkFun_LIS2DH12.h"//Accelerometer for tremor identification
-#include <esp_task_wdt.h>
+//#include <esp_task_wdt.h>
 #include <esp_wifi.h>
-#include <soc/soc.h>
-#include <soc/rtc_cntl_reg.h>
 
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
 
 
 //Actual C code files C:\Users\---username---\.platformio\packages\framework-espidf\components\driver
-#include "driver/i2c.h" //Needed to allow use of I2C peripheral settings to actually reach 1MHz!
+//#include "driver/i2c.h" //Needed to allow use of I2C peripheral settings to actually reach 1MHz!
 TwoWire I2C_HS = TwoWire(0);//HS I2C (Hall Sensors)
 TwoWire I2C_MS = TwoWire(1);//MS I2C (Accelerometer)
 
@@ -126,18 +128,20 @@ const char* password = G15_PASSWORD;
 #define kOTHERERROR 4
 
 
-int mySession = -1; //Tracks session ID as returned by server at Hello
-int lastSession = -1;//Track last session for display purposes
+uint16_t mySession = 0; //Tracks session ID as returned by server at Hello
+uint16_t lastSession = 0;//Track last session for display purposes
 bool serverOK = false;// Periodically verify server alive-edness, store result here...
+
+bool noDispChange = false;
 
 //Moving Average Struct to store Hall sensor readings
 typedef struct{
   uint8_t sampIndex;
   int16_t sampX[HALLAVERAGINGSAMPLES];
   int16_t sampY[HALLAVERAGINGSAMPLES];
-  //int sampZ[HALLAVERAGINGSAMPLES];
-  int16_t avgX,avgY;//,avgZ;
-  int totX,totY;//,totZ;
+  int16_t sampZ[HALLAVERAGINGSAMPLES];
+  int16_t avgX,avgY,avgZ;
+  int totX,totY,totZ;
   uint8_t address; 
 } MASensor;
 
@@ -145,49 +149,48 @@ MASensor sensors[NUMSENSORS];
 
 float BiotSavartCalConstantX = 0.0;
 float BiotSavartCalConstantY = 0.0;
-//float BiotSavartCalConstantZ = 0.0;
+float BiotSavartCalConstantZ = 0.0;
+
 //Each packet has one T = Key, increments by whatever hallBlockSize*sampTime(50mS) or accelBlockSize*sampTime(10ms) is
 int hallTimeStamp = 0;
 int accelTimeStamp = 0;
 
 //Keeps track of current time stamp within a bundled packet (increments and resets at hallBlockSize/accelBlockSize)
-int hallPacketIndex = 0;
-int accelPacketIndex = 0;
+uint8_t hallPacketIndex = 0;
+uint8_t accelPacketIndex = 0;
 
 //Number of matrix scans/Accelerometer reads to bundle into a packet
 const uint8_t hallBlockSize = BLOCKSIZEHALL;
 const uint8_t accelBlockSize = BLOCKSIZEACCEL;
 
 //Json stores hallBlockSize sample periods worth of data.
-StaticJsonDocument <(900 * hallBlockSize)> hallDoc;//TUNING - Recalculate packet size based on new Hx# values
+StaticJsonDocument <(1500 * hallBlockSize)> hallDoc;//TUNING - Recalculate packet size based on new Hx# values
 uint8_t hMsgBuffer[MSGBUFFERSIZE];//msgPack Buffer for Hall
 JsonArray Hx[hallBlockSize];
 JsonArray Hy[hallBlockSize];
-//JsonArray Hz[hallBlockSize];
+JsonArray Hz[hallBlockSize];
 
 JsonArray Ax,Ay,Az;
 
-WiFiClient client;
+//Used for listening to service announce, checking, initiating and ending sessions with server
 WiFiUDP wifiUDPclient;
 
-int srvPort = 20002; //Default port is 20002, but this is actually set by service broadcast at startup
-const int bcastPort = SERVICEBROADCASTPORT; //Port that device listens to service broadcasts on.
+uint16_t srvPort = 20002; //Default port is 20002, but this is actually set by service broadcast at startup
+const uint16_t bcastPort = SERVICEBROADCASTPORT; //Port that device listens to service broadcasts on.
 IPAddress srvAddress;
 
-//String stringifiedJson;//String that stores the json encoded data used on startup and caldata send
-//String stringifiedJsonH;//String that stores the json encoded data special as this is run in a different task.
-//String stringifiedJsonA;//String that stores the json encoded data special as this is run in a different task.
+
 //We generate these once below instead of sprintf'ing our way to new strings each packet
 //This saves a lot of time
-char HxLabel[hallBlockSize][6];
-char HyLabel[hallBlockSize][6];
-//char HzLabel[hallBlockSize][6];
+char HxLabel[hallBlockSize][5];//Makes x0,x1,x2.....x'hallBlockSize'
+char HyLabel[hallBlockSize][5];
+char HzLabel[hallBlockSize][5];
 
 //Json stores accelBlockSize sample periods worth of data
-StaticJsonDocument <(60*accelBlockSize)>accelDoc;//TUNING - Recalculate packet size based on new Ax# values
+StaticJsonDocument <(70*accelBlockSize)>accelDoc;//TUNING - Recalculate packet size based on new Ax# values
 uint8_t aMsgBuffer[MSGBUFFERSIZE]; //msgPack Buffer for Accel
 //Tracking timestamps of last sample, and last report.  TODO - CONSIDER Move to Timer interrupt based sampling
-unsigned long loopStartTime, lastHallSampleTime, lastHallReportTime, lastAccelSampleTime, lastAccelReportTime;
+unsigned long loopStartTime;//, lastHallSampleTime, lastHallReportTime, lastAccelSampleTime, lastAccelReportTime;
 
 bool active = false;
 //This is the power up addresses of the sensors when using the voltage divider inputs to ADR0/1
@@ -195,13 +198,12 @@ bool active = false;
 uint8_t FactoryPowerUpAddresses[NUMSENSORS] = {96,97,98,99,100,101,102,103,104,105,106,107,96,97,98,99,100,101,102,103,104,105,106,107};
 
 //Addresses of hall sensors if they have been programmed
-const int sensorAddresses[] = {12,22,11,21,14,24,13,23,16,26,15,25,32,42,31,41,34,44,33,43,36,46,35,45};
-const int calSensorAddress = 31;
-const int calSensorIndexLocation = 14;//Location in the array above...used to reference sensor data for BiotSavart Const Calculation
+const uint8_t sensorAddresses[] = {12,22,11,21,14,24,13,23,16,26,15,25,32,42,31,41,34,44,33,43,36,46,35,45};
+const uint8_t calSensorAddress = 31;
+const uint8_t calSensorIndexLocation = 14;//Location in the array above...used to reference sensor data for BiotSavart Const Calculation
 
 SemaphoreHandle_t hMutex, aMutex;
-//SemaphoreHandle_t hTaskMutex, aTaskMutex;
-SemaphoreHandle_t UDPMutexA, UDPMutexH;
+SemaphoreHandle_t UDPMutexA, UDPMutexH; //Used to ensure sample and send tasks finish at session end
 WiFiUDP aSendTaskUDP;
 WiFiUDP hSendTaskUDP;
 
@@ -242,36 +244,14 @@ WiFiUDP hSendTaskUDP;
 #define HALL_INT 23
 
 //Function prototypes
+//System Power Related
 void powerOffSensors();
-void powerOnSensors_useEEPROMAddressses();
-void powerOnSensors_useDividerAddresses();
-
-bool initSensor(uint8_t index);
-void enterCam(uint8_t busAddress, uint32_t magicKey);
-void setup();
-void IRAM_ATTR loop();
-void IRAM_ATTR scanHallMatrix();
-void IRAM_ATTR readALS31300ADC(uint8_t index);
-
-uint16_t read(int busAddress, uint8_t address, uint32_t& value);
-uint16_t write(int busAddress, uint8_t address, uint32_t value);
-long IRAM_ATTR SignExtendBitfield(uint32_t data, int width);
-void initI2CBusses();
-void beginSession();
-void endSession();
-void sendCalData();
-
-void IRAM_ATTR packetizeAndSendH(void * pvParameters);
-void IRAM_ATTR packetizeAndSendA(void * pvParameters);
-void IRAM_ATTR sampleAccelTask( void * pvParameters);
-void IRAM_ATTR sampleHallTask( void * pvParameters);
-void initIO();
+void powerOnSensors(bool useEEPROM);
 void initPower();
-void newSessionConnect();
-bool findServer(bool updateDisplay);
-void hallSensorZeroCal();
-void CheckReady();
-void CheckServerAlive();
+
+//I/O Pin related
+void initIO();
+void initI2CBusses();
 #define ledGreenOn() digitalWrite(IND_LED1, HIGH)
 #define ledGreenOff() digitalWrite(IND_LED1, LOW)
 #define ledRedOn() digitalWrite(IND_LED2, HIGH)
@@ -279,12 +259,45 @@ void CheckServerAlive();
 #define ledYellowOn() digitalWrite(IND_LED3, HIGH)
 #define ledYellowOff() digitalWrite(IND_LED3, LOW)
 
+#define waitStylusHome() while(!digitalRead(REED_SWITCH))
+
+//Hall Sensor Related
+bool initHallSensor(uint8_t index);
+void enterCam(uint8_t busAddress, uint32_t magicKey);
+void IRAM_ATTR scanHallMatrix();
+void IRAM_ATTR readALS31300ADC(uint8_t index);
+uint16_t read(int busAddress, uint8_t address, uint32_t& value);
+uint16_t write(int busAddress, uint8_t address, uint32_t value);
+
+//Misc Hall Sensor
+long IRAM_ATTR SignExtendBitfield(uint32_t data, int width);
+
+//Usual Suspects
+void setup();
+void IRAM_ATTR loop();
+
+//Calibration Related
+void sendCalData();
+void hallSensorZeroCal();
+
+//Communications Related
+void beginSession();
+void endSession();
+void IRAM_ATTR packetizeAndSendH(void * pvParameters);
+void IRAM_ATTR packetizeAndSendA(void * pvParameters);
+void IRAM_ATTR sampleAccelTask( void * pvParameters);
+void IRAM_ATTR sampleHallTask( void * pvParameters);
+void newSessionConnect();
+bool findServer(bool updateDisplay);
+void CheckReady();
+void CheckServerAlive();
+
 
 // 0X3C+SA0 - 0x3C or 0x3D
-#define I2C_ADDRESS 0x3C
+#define OLED_I2C_ADDRESS 0x3C
 
-// Define proper RST_PIN if required.
-#define RST_PIN -1
+// Define proper OLED_RST_PIN if required.
+#define OLED_RST_PIN -1
 
 SSD1306AsciiWire oled(I2C_MS);
 //
@@ -297,14 +310,12 @@ SSD1306AsciiWire oled(I2C_MS);
 //
 void setup()
 {
-  int thing = configTICK_RATE_HZ;
-  
   setCpuFrequencyMhz(40); //Slow speed at startup to help reduce brownout issues
-  esp_task_wdt_init(30, false); //set wdt to higher timeout
+  ledGreenOn();
+  ledYellowOn();
+  ledRedOn();
+  //esp_task_wdt_init(30, false); //set wdt to higher timeout
   
-  //WRITE_PERI_REG(RTC_CNTL_DBROWN_OUT_THRES, 0); //Adjust brownout detect, otherwise boots are iffy at powerup
-  //WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_RST_WAIT, 511);
-  //WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_RST_ENA, 0);
   //Setup pin directions
   initIO();  
   
@@ -317,15 +328,14 @@ void setup()
 
   hMutex = xSemaphoreCreateMutex();//Used to prevent hall data from being reset before serialized
   aMutex = xSemaphoreCreateMutex();//Used to prevent accel data from being reset before serialized
+  UDPMutexA = xSemaphoreCreateMutex();//Used to ensure sample/send tasks are stopped before closing session
+  UDPMutexH = xSemaphoreCreateMutex();//Used to ensure sample/send tasks are stopped before closing session
 
-  //These are likely way bigger than they need to be after judicious optimization they should be reevaluated
-  //stringifiedJson.reserve(4096);
   
   initI2CBusses(); // Initialize the I2C communication ports
-  delay(100);
-  oled.begin(&Adafruit128x64, I2C_ADDRESS);
-  oled.setContrast(1);
-  //oled.setI2cClock(440000L);
+  delay(50);
+  oled.begin(&Adafruit128x64, OLED_I2C_ADDRESS);
+  oled.setContrast(127);
   oled.setFont(font5x7);
   oled.clear();
   oled.set2X();
@@ -337,8 +347,8 @@ void setup()
 
   setCpuFrequencyMhz(240);
   delay(10);
-  //Serial.begin(230400);
-  int freq = ESP.getCpuFreqMHz();
+  Serial.begin(230400);
+  
   //int freq = getXtalFrequencyMhz();
   //Serial.print(F("\nSystem Frequency: "));
   //Serial.println(freq);
@@ -360,7 +370,7 @@ void setup()
   //Initialize each Hall sensor -- Enters CAM mode and sets up Full Loop Register
   bool okSensors = true;
   for (uint8_t index = 0; index<NUMSENSORS; index++){
-    if (!initSensor(index)){
+    if (!initHallSensor(index)){
       okSensors = false;
     }
   }
@@ -388,69 +398,74 @@ void setup()
   
   delay(1000);
   hallSensorZeroCal();
-  delay(1500); 
+  delay(1000); 
   bool server_found = findServer(true);//This never returns unless a service announce has been heard.
   wifiUDPclient.begin(srvPort);//Start watching server comms port
-  delay(1500);
-  
-  //Initialize Global variables used in session loop //TODO - Move to local variables .....if reasonable to do so.  Likely to need lots of pass by value function calls...
-  lastHallSampleTime = 0;
-  lastHallReportTime = 0;
-  lastAccelSampleTime = 0;
-  lastAccelReportTime = 0;
   
   //Generate our Hall Sensor Keys in advance, avoids sprintf every packet (speedup!)
   for (int index = 0; index<hallBlockSize;index++){
     sprintf(HxLabel[index], "x%u", index);
     sprintf(HyLabel[index], "y%u", index);
-    //sprintf(HzLabel[index], "Hz%u", index);
+    sprintf(HzLabel[index], "z%u", index);
   }
   
   //Serial.println("AMazeThing...\nReady state starts in 1 Sec");
-  //stringifiedJson="";
   delay(1000);
-  ledGreenOn();
-  ledYellowOff();
-  
+  oled.setContrast(31);
+  CheckReady();
 }
 
 void CheckReady(){
   bool wifiOK = (WiFi.status() == WL_CONNECTED);
   CheckServerAlive();
-  oled.clear();
+  
   if (serverOK && wifiOK){
-    ledGreenOn();
-    ledYellowOff();
-    ledRedOff();
-    oled.set2X();
-    oled.print("  Ready!");
-    oled.set1X();
-    oled.setCursor(0,7);
-    oled.print("Last Session: #");
-    oled.print(lastSession,DEC);
+    if (!noDispChange){
+      oled.clear();
+      ledGreenOn();
+      ledYellowOff();
+      ledRedOff();
+      oled.set2X();
+      oled.print("  Ready!");
+      oled.set1X();
+      oled.setCursor(0,7);
+      if (lastSession >0)
+      {
+        oled.print("Last Session: #");
+        oled.print(lastSession,DEC);
+      }
+      noDispChange=true;
+    }    
   }else{
+    oled.clear();
+    noDispChange=false;
     ledGreenOff();
     ledYellowOn();
     ledRedOff();
+    bool wifiReset = false;
     if (WiFi.status()!= WL_CONNECTED){
+      ledRedOn();
       WiFi.disconnect();
       WiFi.begin(ssid, password);
       oled.setCursor(0,7);
       oled.print("WiFi: ");
       while(WiFi.status() != WL_CONNECTED){
-        delay(250);
+        delay(200);
         //Serial.print(".");
       }
       oled.setCursor(6,7);
       oled.print("Re-Connected");
+      wifiReset = true;
     }
+    if (wifiReset)delay(1000);
+    ledRedOff();
     oled.setCursor(0,0);
     oled.set2X();
-    oled.println("   Check");
+    oled.println(" Checking");
     oled.println("  Server!");
     oled.set1X();
     oled.setCursor(0,6);
-    oled.println("  Searching...");
+    oled.println("  Listening...");
     findServer(false);
     oled.setCursor(0,6);
     oled.clearToEOL();
@@ -474,7 +489,7 @@ void CheckServerAlive(){
       wifiUDPclient.beginPacket(srvAddress,srvPort);
       wifiUDPclient.write(buffer,msgLen);
       wifiUDPclient.endPacket();
-      delay(300);
+      delay(100);
       StaticJsonDocument<100> serverResponse;
       int pSize = wifiUDPclient.parsePacket();
       if (pSize){
@@ -482,6 +497,7 @@ void CheckServerAlive(){
         DeserializationError de_error = deserializeMsgPack(serverResponse, buffer);
         if (de_error){
           oled.print("Bad packet Rx'd");
+          noDispChange=false;
         }else if (serverResponse.containsKey(KEY_SRVOK))serverOK = true;
       }else{
         trials++;
@@ -491,9 +507,10 @@ void CheckServerAlive(){
     }
     if (trials>30){
       oled.clear();
+      noDispChange=false;
       oled.set2X();
       oled.println(" Server\n  Lost");
-      oled.println("Searching.");
+      oled.println("Listening");
       bool find_server = findServer(false);
     }
   }
@@ -535,8 +552,18 @@ void loop()
 
 
 void IRAM_ATTR beginSession(){
+  noDispChange=false;
   newSessionConnect();
-  if (mySession<=0) return;
+  if (mySession<=0){
+    oled.clear();
+    oled.set2X();
+    oled.println("  Server");
+    oled.println(" Session #");
+    oled.println("  Invalid");
+    delay(1500);
+    ledYellowOn();
+    return;
+  } 
 
   hallTimeStamp = 0;
   accelTimeStamp = 0;
@@ -551,10 +578,10 @@ void IRAM_ATTR beginSession(){
   hallDoc[KEY_SESSIONID] = mySession;
   accelDoc[KEY_ACCELTIME] =accelTimeStamp;
   accelDoc[KEY_SESSIONID] = mySession;
-  //To avoid blank first Accel packet
+  
+  //Needed to avoid blank first Accel packet
   Ax = accelDoc.createNestedArray("x");
   Ay = accelDoc.createNestedArray("y");
-  //TODO: Make UseZ a parameter provided by server broadcast
   Az = accelDoc.createNestedArray("z");
  
   uint32_t tTime = 0;
@@ -562,8 +589,7 @@ void IRAM_ATTR beginSession(){
   active = true;//state variable toggled by reed switch
   TaskHandle_t * SampleA_Task_Handle;
   TaskHandle_t * SampleH_Task_Handle;
-  UDPMutexA = xSemaphoreCreateMutex();
-  UDPMutexH = xSemaphoreCreateMutex();
+
   bool recLed = true;
   if (serverOK){
     
@@ -574,6 +600,8 @@ void IRAM_ATTR beginSession(){
     xTaskCreatePinnedToCore(sampleHallTask,"SampleHallTask",9100,NULL,20,SampleH_Task_Handle,1);
 
     while(active && WiFi.status()==WL_CONNECTED){//The main data collection loop
+      
+      //Blink red led while session active
       if ((millis() - blinkTime)>=1000){
         blinkTime = millis();
         recLed = !recLed;
@@ -585,15 +613,14 @@ void IRAM_ATTR beginSession(){
       delay(100);
 
       if ((loopStartTime - tTime)>=1000){
-        if (digitalRead(REED_SWITCH)){ // ****&&HallPacketIndex==0****//Finish the last packet...
+        if (digitalRead(REED_SWITCH)){
           active = false;
           tTime = loopStartTime;
-          ledRedOff();
-          
           xSemaphoreTake(UDPMutexA, portMAX_DELAY);
           xSemaphoreTake(UDPMutexH, portMAX_DELAY);
-          
-        }else (tTime = loopStartTime); //Forces sessions to be increments of 1 Second long
+          endSession();
+          ledRedOff();
+        }else (tTime = loopStartTime);
       }
     }//End of While(Active)
   }
@@ -636,20 +663,25 @@ void sendCalData(){
       count++;
     }     
    }
-  StaticJsonDocument <2816>calDoc;
+  StaticJsonDocument <1500>calDoc;
   calDoc[KEY_BIOSAVX] = BiotSavartCalConstantX;
   calDoc[KEY_BIOSAVY] = BiotSavartCalConstantY;
-  //calDoc["BSZ"] = BiotSavartCalConstantZ;
+  calDoc[KEY_BIOSAVZ] = BiotSavartCalConstantZ;
 
   JsonArray calX = calDoc.createNestedArray(KEY_HCALX);
   JsonArray calY = calDoc.createNestedArray(KEY_HCALY);
-  //JsonArray calZ = calDoc.createNestedArray("H_CAL_Z");
+  JsonArray calZ = calDoc.createNestedArray(KEY_HCALZ);
+
   for (int index = 0; index<NUMSENSORS;index++){
       calX.add(sensors[index].avgX);
       calY.add(sensors[index].avgY);
-      //calZ.add(sensors[index].avgZ);
+      calZ.add(sensors[index].avgZ);
   }
-  uint8_t msgPackBuffer[1400];
+  int jsize = calDoc.memoryUsage();
+    Serial.print("calDoc Mem Usage: ");
+    Serial.println(jsize,DEC);
+  uint8_t msgPackBuffer[UDPBUFSIZE];
+  //Serial.print(calDoc.memoryUsage(),DEC);
   uint16_t bufLen = serializeMsgPack(calDoc,msgPackBuffer);
   //Serial.println(bufLen);
   wifiUDPclient.beginPacket(srvAddress,srvPort);
@@ -684,7 +716,7 @@ void IRAM_ATTR readALS31300ADC(uint8_t index){
   //Subtract fromt the total, the last value saved at this location in our ring buffer
   currSensor->totX = currSensor->totX - currSensor->sampX[currSensor->sampIndex];
   currSensor->totY = currSensor->totY - currSensor->sampY[currSensor->sampIndex];
-  //currSensor->totZ = currSensor->totZ - currSensor->sampZ[currSensor->sampIndex];
+  currSensor->totZ = currSensor->totZ - currSensor->sampZ[currSensor->sampIndex];
         
   // Start the read and request 8 bytes
   // which are the contents of register 0x28 and 0x29
@@ -704,32 +736,24 @@ void IRAM_ATTR readALS31300ADC(uint8_t index){
   // significant 4 bits of each axis from register 0x29, then sign extend the 12th bit.
   currSensor->sampX[currSensor->sampIndex] = SignExtendBitfield(((value0x28 >> 20) & 0x0FF0) | ((value0x29 >> 16) & 0x0F), 12);
   currSensor->sampY[currSensor->sampIndex] = SignExtendBitfield(((value0x28 >> 12) & 0x0FF0) | ((value0x29 >> 12) & 0x0F), 12);
-  //currSensor->sampZ[currSensor->sampIndex] = SignExtendBitfield(((value0x28 >> 4) & 0x0FF0) | ((value0x29 >> 8) & 0x0F), 12);
+  currSensor->sampZ[currSensor->sampIndex] = SignExtendBitfield(((value0x28 >> 4) & 0x0FF0) | ((value0x29 >> 8) & 0x0F), 12);
 
   //Update moving average total
   currSensor->totX= currSensor->totX + currSensor->sampX[currSensor->sampIndex];
   currSensor->totY= currSensor->totY + currSensor->sampY[currSensor->sampIndex];
-  //currSensor->totZ= currSensor->totZ + currSensor->sampZ[currSensor->sampIndex];
-  //Serial.print("Read X ");
-  //Serial.println(currSensor->sampX[currSensor->sampIndex], DEC);        
+  currSensor->totZ= currSensor->totZ + currSensor->sampZ[currSensor->sampIndex];
+  
   currSensor->sampIndex = currSensor->sampIndex +1;
                
   //Ring buffer index wrap-around
-  //if (currSensor->sampIndex>=HALLAVERAGINGSAMPLES) currSensor->sampIndex = 0;
-  currSensor->sampIndex=currSensor->sampIndex%HALLAVERAGINGSAMPLES;//This should be computationally less intensive.
+  currSensor->sampIndex=currSensor->sampIndex%HALLAVERAGINGSAMPLES;
 
   //Update average value for sensor (TRUNCATED TO INTEGERS....)
   currSensor->avgX= (currSensor->totX) / (int16_t)HALLAVERAGINGSAMPLES;
   currSensor->avgY= (currSensor->totY) / (int16_t)HALLAVERAGINGSAMPLES;
-  //Serial.print("Average X ");
-  //Serial.println(currSensor->avgX, DEC);
-  //currSensor->avgZ= (float)(currSensor->totZ) / (float)HALLAVERAGINGSAMPLES;
+  currSensor->avgZ= (currSensor->totZ) / (int16_t)HALLAVERAGINGSAMPLES;
 
   //Truncate to Int reduces data to transmit by more than 50%
-
-  //currSensor->avgX= () / HALLAVERAGINGSAMPLES;
-  //currSensor->avgY= ((int)(currSensor->totX * 100 + 0.5) / 100.0) / HALLAVERAGINGSAMPLES;
-  //currSensor->avgZ= (int)((float)(currSensor->totZ) / (float)HALLAVERAGINGSAMPLES);
 
 }
 
@@ -797,22 +821,17 @@ void powerOffSensors(){
   delay(50); //Data sheet indicates 50ms required for EEPROM WRITE to finish
   digitalWrite(CTL_VDIVIDER, HIGH); //If this is left floating, will attempt to keep chips powered....bad!
   digitalWrite(_CTL_CHA1_PWR, HIGH);
-  delay(500); //TUNING - Scope to find actual fall time of power rail.....
+  delay(300); //TUNING - Scope to find actual fall time of power rail.....
 }
-void powerOnSensors_useEEPROMAddressses(){
-  //Switch N-Fet out of circuit and allow divider taps to float up to VCC
-  digitalWrite(CTL_VDIVIDER, LOW);
+void powerOnSensors(bool useEEPROM){
+  if (useEEPROM){//Use addresses stored in EEPROM
+    //Switch N-Fet out of circuit and allow divider taps to float up to VCC
+    digitalWrite(CTL_VDIVIDER, LOW);
+  }else{//Use Addresses assigned via V-Divider
+    //Enable voltage divider for address pins
+    digitalWrite(CTL_VDIVIDER, HIGH);
+  }
   delay(33);//TUNING - Scope to find actual transition Time.
-  
-  //Enable Main power rail and wait for stabilzation
-  digitalWrite(_CTL_CHA1_PWR, LOW);
-  delay(500);//TUNING - Scope to find actual rise time and stabilization period from datasheet
-}
-void powerOnSensors_useDividerAddresses(){
-  //Enable voltage divider for address pins
-  digitalWrite(CTL_VDIVIDER, HIGH);
-  delay(33);//TUNING - Scope to find actual transition Time.
-  
   digitalWrite(_CTL_CHA1_PWR, LOW); //Turn on Power supply to sensors
   delay(200); //TUNING - Scope to find actual rise time and stabilization period from datasheet.
 }
@@ -835,7 +854,7 @@ void enterCam(uint8_t busAddress, uint32_t magicKey){
   }  
 }
 
-bool initSensor(uint8_t index){
+bool initHallSensor(uint8_t index){
   enterCam(sensorAddresses[index], CAM_KEY);
   bool sensorOk = true;
   //TODO CLEAN UP CODE AND JUST USE index below!
@@ -876,17 +895,17 @@ bool initSensor(uint8_t index){
   for (int i =0; i<HALLAVERAGINGSAMPLES; i++){
     sensors[index].sampX[i]=0;
     sensors[index].sampY[i]=0;
-    //sensors[index].sampZ[i]=0;
+    sensors[index].sampZ[i]=0;
   }
   //Initialize other values to 0
   sensors[index].totX = 0;
   sensors[index].totY = 0;
-  //sensors[index].totZ = 0;
+  sensors[index].totZ = 0;
   sensors[index].avgX = 0;
   sensors[index].avgY = 0;
-  //sensors[index].avgZ = 0;
+  sensors[index].avgZ = 0;
   sensors[index].sampIndex=0;
-  //May be useful later, but possible to remove
+  
   sensors[index].address=sensorAddresses[index];
   return sensorOk;
 }
@@ -902,6 +921,9 @@ void initI2CBusses(){
 
 void IRAM_ATTR packetizeAndSendH( void *pvParameters){
     xSemaphoreTake(hMutex, portMAX_DELAY);
+    int jsize = hallDoc.memoryUsage();
+    Serial.print("HallDoc Mem Usage: ");
+    Serial.println(jsize,DEC);
     int mSize = serializeMsgPack(hallDoc,hMsgBuffer);
     xSemaphoreGive(hMutex);
     hSendTaskUDP.beginPacket(srvAddress,srvPort);
@@ -912,6 +934,9 @@ void IRAM_ATTR packetizeAndSendH( void *pvParameters){
 
 void IRAM_ATTR packetizeAndSendA( void *pvParameters){
     xSemaphoreTake(aMutex, portMAX_DELAY);
+    int jsize = accelDoc.memoryUsage();
+    Serial.print("AccelDoc Mem Usage: ");
+    Serial.println(jsize,DEC);
     int mSize = serializeMsgPack(accelDoc,aMsgBuffer);
     xSemaphoreGive(aMutex);
     aSendTaskUDP.beginPacket(srvAddress,srvPort);
@@ -952,9 +977,9 @@ void IRAM_ATTR sampleAccelTask( void * pvParameters){
       if (accelPacketIndex==0){
         accelDoc[KEY_REALSTART]= millis();
       }
-      accelDoc["x"].add(accel.getX());
-      accelDoc["y"].add(accel.getY());
-      accelDoc["z"].add(accel.getZ());
+      accelDoc["x"].add(accel.getRawX());
+      accelDoc["y"].add(accel.getRawY());
+      accelDoc["z"].add(accel.getRawZ());
       accelPacketIndex++;
       dataReady=(accelPacketIndex%accelBlockSize==0);
       //Serial.println(dataReady,DEC);
@@ -973,10 +998,10 @@ void IRAM_ATTR sampleHallTask( void * pvParameters){
   TickType_t xLastRunTime;
   const TickType_t xTaskDelayTimeH = HALLSAMPPERIOD;
   BaseType_t xDeadlineMissed;
-
+  //int thing = CONFIG_ESP32_WIFI_TX_BUFFER_TYPE;//Convenient link to sdkconfig.h
   xSemaphoreTake(UDPMutexH,portMAX_DELAY);
   bool dataReady=false;
-  int sampCount = 0;
+  uint16_t sampCount = 0;
   while(active){
     xLastRunTime = xTaskGetTickCount();
     scanHallMatrix();
@@ -1008,13 +1033,13 @@ void IRAM_ATTR sampleHallTask( void * pvParameters){
           //Add the nested arrays to the JSON doc for this sample
           Hx[hallPacketIndex] = hallDoc.createNestedArray(HxLabel[hallPacketIndex]);
           Hy[hallPacketIndex] = hallDoc.createNestedArray(HyLabel[hallPacketIndex]);
-          //Hz[hallPacketIndex] = hallDoc.createNestedArray(HzLabel[hallPacketIndex]);
+          Hz[hallPacketIndex] = hallDoc.createNestedArray(HzLabel[hallPacketIndex]);
 
           //Populate the nested arrays with the actual sensor values
           for(int sIndex = 0; sIndex <(NUMSENSORS); sIndex++){
             Hx[hallPacketIndex].add(sensors[sIndex].avgX );
             Hy[hallPacketIndex].add(sensors[sIndex].avgY );
-            //Hz[hallPacketIndex].add(0);
+            Hz[hallPacketIndex].add(sensors[sIndex].avgZ );
           }
           hallPacketIndex++;
           dataReady = (hallPacketIndex%hallBlockSize == 0);
@@ -1051,7 +1076,7 @@ void initPower(){
   delay(50);
   digitalWrite(_CTL_VCC3V3,LOW); //3v3 on
   delay(50);
-  digitalWrite(CTL_VDIVIDER, LOW);
+  digitalWrite(CTL_VDIVIDER, LOW);//Divider off, use EEPROM addresses
   delay(25);
   digitalWrite(_CTL_CHA1_PWR, LOW);//CHA1 on
   delay(50);
@@ -1114,16 +1139,18 @@ void newSessionConnect(){
     oled.print("#:");
     oled.print(mySession,DEC);
   }else{
+    active=false;
     oled.clear();
     oled.set2X();
-    oled.println("  Error!");
+    oled.println(" *Error*");
     oled.println("  Server");
-    oled.println(" Timeout");
+    oled.println("  Timeout");
     oled.set1X();
     oled.setCursor(0,7);
     oled.print("Stylus Wait");
     mySession = -1;
-    while(!digitalRead(REED_SWITCH));
+    ledYellowOff();
+    waitStylusHome();
   }
   ledRedOn();
 }
@@ -1199,16 +1226,25 @@ void hallSensorZeroCal(){
   uint32_t cTime=0;
   oled.set1X();
   oled.setCursor(0,5);
+  uint8_t dotCount = 0;
   while(!digitalRead(REED_SWITCH)){ //Wait for reed switch to be in place before gathering data
     sTime = millis();
     if (sTime%1000 == 0){
       oled.print(".");
-      delay(1);
+      dotCount++;
+      delay(10);
+    
+    }
+    if (dotCount==21){
+      oled.setCursor(0,5);
+      oled.clearToEOL();
+      dotCount=0;
     }
   }
+  delay(100);
   
   int count = 0;
-  while(count<50){
+  while(count<HALLAVERAGINGSAMPLES){
     cTime = millis();  
     if((cTime - sTime)>=5){//We can read this faster than 6ms since it's only one sensor.
       sTime = cTime;
@@ -1218,10 +1254,11 @@ void hallSensorZeroCal(){
   }
   BiotSavartCalConstantX = sensors[calSensorIndexLocation].avgX;
   BiotSavartCalConstantY = sensors[calSensorIndexLocation].avgY;
-  //BiotSavartCalConstantZ = sensors[calSensorIndexLocation].avgZ;
+  BiotSavartCalConstantZ = sensors[calSensorIndexLocation].avgZ;
   oled.clear();
   oled.set2X();
-  oled.println("   Hall");
-  oled.println(" Calibrate");
-  oled.println(" Complete!");
+  oled.println("----------");
+  oled.println("HallSensor");
+  oled.println("Calibrated");
+  oled.println("----------");
 }

@@ -281,6 +281,7 @@ try:# Try allows us to catch keyboard interrupt
         
         address = bytesAddressPair[1]
         unpacked = unpack(Packet)
+        pprint(unpacked)
         if unpacked != None:
             mType = getMsgType(unpacked)
             
