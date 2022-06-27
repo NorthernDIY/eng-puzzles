@@ -50,6 +50,7 @@ cursor = None
 sessionID = 0
 sessionStartTimeDate = -1
 FWVer = -1
+badPacketCount = 0
 
 HBSz = 0 #Hall Sensor Block Size
 HST = 0 #Hall Sensor Sampling Period
@@ -63,6 +64,8 @@ AST = 0 #Accelerometer Sampling Interval
 AT = 0 #Accelerometer Time Stamp (last entry)
 
 SIP = False
+
+ServerWantsHZ = 1
 
 class msgType(Enum):
     JUNK= 0
@@ -213,6 +216,7 @@ def shutdownServer():
     if (sqlConn!=None):#If its a string then no sql db is open
         sqlConn.close()
     #ServiceBroadcaster.terminate()
+    print("Total Bad Packets recieved: %d" %badPacketCount)
     sysExit()
 
 
@@ -281,7 +285,7 @@ try:# Try allows us to catch keyboard interrupt
         
         address = bytesAddressPair[1]
         unpacked = unpack(Packet)
-        pprint(unpacked)
+        #pprint(unpacked)
         if unpacked != None:
             mType = getMsgType(unpacked)
             
@@ -290,7 +294,7 @@ try:# Try allows us to catch keyboard interrupt
                     sessionID +=1
                     print("New Session #%d started at %s by %s"%(sessionID,datetime.now(), address[0]),flush=True)
                     activeSessions[address[0]] = sessionID
-                    SIDresponse = {'ID':sessionID}
+                    SIDresponse = {'ID':sessionID,'SendHZ':ServerWantsHZ}
                     msgToClient = enc_msgpack(SIDresponse)
                     UDPServerSocket.sendto(msgToClient, address)
                 else:#previous Session not closed, close now, mark for processing, start new session
@@ -302,7 +306,7 @@ try:# Try allows us to catch keyboard interrupt
                     sessionID +=1
                     activeSessions[address[0]] = sessionID
                     print("New session #%d at %s by %s"%(sessionID, datetime.now(), address[0]),flush=True)
-                    SIDresponse = {'ID':activeSessions[address[0]]}
+                    SIDresponse = {'ID':activeSessions[address[0]],'SendHZ':ServerWantsHZ}
                     msgToClient = enc_msgpack(SIDresponse)
                     UDPServerSocket.sendto(msgToClient, address)
                 #Setup Session DB
@@ -313,7 +317,8 @@ try:# Try allows us to catch keyboard interrupt
                 HST = unpacked["HST"]
                 FWVer = unpacked["Hello"]
                 NumSensors=unpacked["NumSens"]
-                UseHZ = (unpacked["HallZ"]==1)
+                UseHZ = (unpacked["HallHasZ"]==1)&(ServerWantsHZ==1)
+				
                 newSQLdb(filename)
                 sessionStartTimeDate = datetime.now()
                 #pprint.pprint(unpacked)
@@ -353,7 +358,7 @@ try:# Try allows us to catch keyboard interrupt
                 print("Cal Data Rx'd (%d Bytes)"%Packet.__sizeof__())
             else:
                 print("Bad Packet Rx'd from: %s" %address[0])
-
+                badPacketCount+=1
                 #maybe send some data...or not
                 #perhaps implement some sort of flag to check if the next packet is the time step after
                 #then just auto fill gap with interpolated values...or fix it in post(processing)
