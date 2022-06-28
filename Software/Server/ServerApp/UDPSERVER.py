@@ -36,6 +36,13 @@ db_RawDir = '/RawDat/'
 db_fName = '.' + db_RawDir + 'MZRaw_S' #Session db prefix
 cfg_fName = 'ServerConfig.json' #Filename of settings storage
 
+#Client Device parameter Adjustments
+#At session start, server sends the following parameters to the ESP32
+ServerWantsHZ = 0	#(Sent to ESP32) 1 = Send Hall Z data, 0 = Don't send
+HST = 10 			#(Sent to ESP32)Hall Sensor Sampling Period
+HRT = 100			#(Sent to ESP32)Hall Sensor Report time - [Interval in which MA-Filtered Hall data is sent]
+HAVS = 20	#MAX=60	#(Sent to ESP32)Hall Sensor # of entries in Moving Average Filter
+AST = 40 			#(Sent to ESP32)Accelerometer Sampling Interval
 
 #Run Time Variables
 #Network setting variables
@@ -52,20 +59,24 @@ sessionStartTimeDate = -1
 FWVer = -1
 badPacketCount = 0
 
-HBSz = 0 #Hall Sensor Block Size
-HST = 0 #Hall Sensor Sampling Period
-HT = 0 #Hall Sensor Time Stamp (last entry)
-NumSensors = 24 #Number of Hall sensors
-UseHZ = False #Capture Hall Z values (Off by Default)
-currHTime = 0 # Timestamp of last recieved Hall data packet (first entry)
+HBSz = 0 	#(Rx'd from ESP32) Hall Sensor Block Size
+ 
 
-ABSz = 0 #Accelerometer Block Size
-AST = 0 #Accelerometer Sampling Interval
-AT = 0 #Accelerometer Time Stamp (last entry)
+HT = 0 #(Rx'd from ESP32) Hall Sensor Time Stamp (last entry)
+NumSensors = 0 #(Rx'd from ESP32)Number of Hall sensors
+
+currHTime = 0 #(Rx'd from ESP32) Timestamp of last recieved Hall data packet (first entry)
+
+ABSz = 0 #(Rx'd from ESP32 )Accelerometer Block Size
+
+AT = 0 #(Rx'd from ESP32) Accelerometer Time Stamp (last entry)
 
 SIP = False
+UseHZ = False #Capture Hall Z values (Off by Default)
 
-ServerWantsHZ = 1
+
+HUSecLast = 0
+AUSecLast = 0
 
 class msgType(Enum):
     JUNK= 0
@@ -294,7 +305,7 @@ try:# Try allows us to catch keyboard interrupt
                     sessionID +=1
                     print("New Session #%d started at %s by %s"%(sessionID,datetime.now(), address[0]),flush=True)
                     activeSessions[address[0]] = sessionID
-                    SIDresponse = {'ID':sessionID,'SendHZ':ServerWantsHZ}
+                    SIDresponse = {'ID':sessionID,'WantHZ':ServerWantsHZ,'AST':AST,'HST':HST,'HRT':HRT,'HMS':HAVS}
                     msgToClient = enc_msgpack(SIDresponse)
                     UDPServerSocket.sendto(msgToClient, address)
                 else:#previous Session not closed, close now, mark for processing, start new session
@@ -306,15 +317,16 @@ try:# Try allows us to catch keyboard interrupt
                     sessionID +=1
                     activeSessions[address[0]] = sessionID
                     print("New session #%d at %s by %s"%(sessionID, datetime.now(), address[0]),flush=True)
-                    SIDresponse = {'ID':activeSessions[address[0]],'SendHZ':ServerWantsHZ}
+                    SIDresponse = {'ID':activeSessions[address[0]],'WantHZ':ServerWantsHZ,'AST':AST,'HST':HST,'HRT':HRT,'HMS':HAVS}
                     msgToClient = enc_msgpack(SIDresponse)
                     UDPServerSocket.sendto(msgToClient, address)
                 #Setup Session DB
+                pprint(SIDresponse)
                 filename = db_fName + str(sessionID) + '.db'
                 HBSz = unpacked["HBS"]
                 ABSz = unpacked["ABS"]
-                AST = unpacked["AST"]
-                HST = unpacked["HST"]
+                #AST = unpacked["AST"]
+                #HST = unpacked["HST"]
                 FWVer = unpacked["Hello"]
                 NumSensors=unpacked["NumSens"]
                 UseHZ = (unpacked["HallHasZ"]==1)&(ServerWantsHZ==1)
@@ -343,14 +355,20 @@ try:# Try allows us to catch keyboard interrupt
                 print("ESP checked server alive!")
             elif (mType==msgType.HALL):
                 print("H Data Rx'd (%d Bytes)"%Packet.__sizeof__(), end = "")
-                print("\t Start = %d\t End = %d" %(unpacked["S"], unpacked["E"]))
+                elapsed = unpacked["E"] - unpacked["S"]
+                Hdiff = unpacked["S"]-HUSecLast
+                print("    ST=%d    ET=%d    Elapsed=%d    (Start Delta=%d)" %(unpacked["S"], unpacked["E"], elapsed,Hdiff))
+                HUSecLast = unpacked["S"]
                 #pprint(unpacked)
                 InsertHallData(unpacked)
 
             elif (mType==msgType.ACCEL):
                 print("A Data Rx'd (%d Bytes)"%Packet.__sizeof__(), end ="")
-                print("\t Start = %d\t End = %d" %(unpacked["S"], unpacked["E"]))
-                #pprint(unpacked)
+                elapsed = unpacked["E"] - unpacked["S"]
+                Adiff = unpacked["S"]-AUSecLast
+                print("    ST=%d    ET=%d    Elapsed=%d    (Start Delta=%d)" %(unpacked["S"], unpacked["E"],elapsed, Adiff))
+                AUSecLast = unpacked["S"]
+				#pprint(unpacked)
                 #print("\n\n",flush=True)
                 InsertAccelData(unpacked)
             elif (mType==msgType.CAL_HALL):
