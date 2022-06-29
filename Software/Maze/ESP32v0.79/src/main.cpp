@@ -194,7 +194,7 @@ int hallTimeStamp = 0;
 int accelTimeStamp = 0;
 
 //Keeps track of current time stamp within a bundled packet (increments and resets at hallBlockSize/accelBlockSize)
-uint8_t hallPacketIndex = 0;
+
 uint8_t accelPacketIndex = 0;
 
 //Number of matrix scans/Accelerometer reads to bundle into a packet
@@ -232,7 +232,7 @@ unsigned long loopStartTime;//, lastHallSampleTime, lastHallReportTime, lastAcce
 
 bool active = false;
 
-SemaphoreHandle_t hMutex, aMutex;
+SemaphoreHandle_t hDocMutex, aDocMutex, hSampMutex;
 SemaphoreHandle_t UDPMutexA, UDPMutexH; //Used to ensure sample and send tasks finish at session end
 WiFiUDP aSendTaskUDP;
 WiFiUDP hSendTaskUDP;
@@ -312,10 +312,13 @@ void hallSensorZeroCal();
 //Communications Related
 void beginSession();
 void endSession();
-void IRAM_ATTR packetizeAndSendH(void * pvParameters);
-void IRAM_ATTR packetizeAndSendA(void * pvParameters);
-void IRAM_ATTR sampleAccelTask( void * pvParameters);
 void IRAM_ATTR sampleHallTask( void * pvParameters);
+void IRAM_ATTR reportHallTask(void * pvParameters);
+void IRAM_ATTR pktzAndSendHallTask(void * pvParameters);
+
+void IRAM_ATTR pktzAndSendAccelTask(void * pvParameters);
+void IRAM_ATTR sampleAccelTask( void * pvParameters);
+
 void newSessionConnect();
 bool findServer(bool updateDisplay);
 void CheckReady();
@@ -350,11 +353,12 @@ void setup()
   ledRedOff();
   ledYellowOn();
 
-  hMutex = xSemaphoreCreateMutex();//Used to prevent hall data from being reset before serialized
-  aMutex = xSemaphoreCreateMutex();//Used to prevent accel data from being reset before serialized
+  hDocMutex = xSemaphoreCreateMutex();//Used to prevent hall data from being reset before serialized
+  aDocMutex = xSemaphoreCreateMutex();//Used to prevent accel data from being reset before serialized
   UDPMutexA = xSemaphoreCreateMutex();//Used to ensure sample/send tasks are stopped before closing session
   UDPMutexH = xSemaphoreCreateMutex();//Used to ensure sample/send tasks are stopped before closing session
-
+  hSampMutex = xSemaphoreCreateMutex();
+  
   initI2CBusses(); // Initialize the I2C communication ports
   delay(50);
   oled.begin(&Adafruit128x64, OLED_I2C_ADDRESS);
@@ -589,7 +593,7 @@ void IRAM_ATTR beginSession(){
   accelTimeStamp = 0;
   
   //RESET packet indexes
-  hallPacketIndex = 0;
+  //hallPacketIndex = 0;
   accelPacketIndex = 0;
  
   sendCalData();//This could change if for example, maze is moved after powerup
@@ -609,6 +613,7 @@ void IRAM_ATTR beginSession(){
   active = true;//state variable toggled by reed switch
   TaskHandle_t * SampleA_Task_Handle;
   TaskHandle_t * SampleH_Task_Handle;
+  TaskHandle_t * ReportH_Task_Handle;
   TaskHandle_t * spin_Task_Handle;
   //TaskHandle_t * serverCheck_Task_Handle;
 
@@ -620,9 +625,11 @@ void IRAM_ATTR beginSession(){
     //Data Collect, process and Send Tasks....
     //xTaskCreatePinnedToCore(function,pcname,stackdepth,pvparameters,priority...)
     //xTaskCreatePinnedToCore(sampleAccelTask,"SampAccelTask",4000,NULL,20,SampleA_Task_Handle,1);
-    xTaskCreate(sampleAccelTask,"SampAccelTask",4000,NULL,20,SampleA_Task_Handle);
-    xTaskCreate(sampleHallTask,"SampleHallTask",4000,NULL,20,SampleH_Task_Handle);
-    xTaskCreate(spinnerTask,"SpinnerTask",1500,NULL,14,spin_Task_Handle);
+    xTaskCreate(sampleAccelTask,"SampAccelTask",4000,NULL,21,SampleA_Task_Handle);
+    xTaskCreate(sampleHallTask,"SampHallTask",4000,NULL,21,SampleH_Task_Handle);
+    xTaskCreate(reportHallTask,"ReportHallTask",4000,NULL,20,ReportH_Task_Handle);
+    xTaskCreate(spinnerTask,"SpinnerTask",1500,NULL,13,spin_Task_Handle);
+
     //xTaskCreate(serverCheckInTask,"ServerCheckTask",10000,NULL,14,serverCheck_Task_Handle);
     while(active && WiFi.status()==WL_CONNECTED){//The main data collection loop
       loopStartTime=millis();
@@ -910,29 +917,10 @@ void initI2CBusses(){
   I2C_MS.setClock(400000);//Pretty close to 400KHz as verified by LA1034
 }
 
-void IRAM_ATTR packetizeAndSendH( void *pvParameters){
-    xSemaphoreTake(hMutex, portMAX_DELAY);
-    if (DBGSERIAL){
-      int jsize = hallDoc.memoryUsage();
-      Serial.print("HallDoc Mem Usage: ");
-      Serial.println(jsize,DEC);
-    }
-    int mSize = serializeMsgPack(hallDoc,hMsgBuffer);
-    xSemaphoreGive(hMutex);
-    hSendTaskUDP.beginPacket(srvAddress,srvPort);
-    if (DBGSERIAL){
-      Serial.print("HallDoc msgpack Size: ");
-      Serial.println(mSize,DEC);
-    }
-    hSendTaskUDP.write(hMsgBuffer,mSize);
-    hSendTaskUDP.endPacket();
-    if (DBGSERIAL) Serial.print("HSend TASK HW MARK: ");
-    if (DBGSERIAL) Serial.println(uxTaskGetStackHighWaterMark(NULL),DEC);
-    vTaskDelete(NULL);
-}
 
-void IRAM_ATTR packetizeAndSendA( void *pvParameters){
-    xSemaphoreTake(aMutex, portMAX_DELAY);
+
+void IRAM_ATTR pktzAndSendAccelTask( void *pvParameters){
+    xSemaphoreTake(aDocMutex, portMAX_DELAY);
     
     if (DBGSERIAL){
       Serial.print("AccelDoc Mem Usage: ");
@@ -940,7 +928,7 @@ void IRAM_ATTR packetizeAndSendA( void *pvParameters){
       Serial.println(jsize,DEC);
     }
     int mSize = serializeMsgPack(accelDoc,aMsgBuffer);
-    xSemaphoreGive(aMutex);
+    xSemaphoreGive(aDocMutex);
     aSendTaskUDP.beginPacket(srvAddress,srvPort);
     
     aSendTaskUDP.write(aMsgBuffer,mSize);
@@ -957,15 +945,16 @@ void IRAM_ATTR packetizeAndSendA( void *pvParameters){
 
 void IRAM_ATTR sampleAccelTask( void * pvParameters){
   TickType_t xLastRunTime;
+  
   const TickType_t xTaskDelayTimeA = ACCELSAMPPERIOD;
   xSemaphoreTake(UDPMutexA,portMAX_DELAY);
   bool dataReady = false;
   while(active){
     xLastRunTime = xTaskGetTickCount();
     if (dataReady){
-      xTaskCreate(packetizeAndSendA,"PackNSendA",2000,NULL,22,NULL);
+      xTaskCreate(pktzAndSendAccelTask,"PackNSendA",2000,NULL,22,NULL);
       delayMicroseconds(95);
-      xSemaphoreTake(aMutex, portMAX_DELAY);
+      xSemaphoreTake(aDocMutex, portMAX_DELAY);
       
       accelPacketIndex = 0;//reset the sample index within the packet.
       accelDoc.clear();//Clear out old information in the Json Structure.
@@ -976,7 +965,7 @@ void IRAM_ATTR sampleAccelTask( void * pvParameters){
       Ay = accelDoc.createNestedArray("y");
       Az = accelDoc.createNestedArray("z");
       dataReady=false;
-      xSemaphoreGive(aMutex);
+      xSemaphoreGive(aDocMutex);
 
     }else{
       if (accelPacketIndex==0){
@@ -1000,90 +989,101 @@ void IRAM_ATTR sampleAccelTask( void * pvParameters){
   vTaskDelete(NULL);
 }
 
-void IRAM_ATTR sampleHallTask( void * pvParameters){
-  TickType_t xLastRunTime;
-  const TickType_t xTaskDelayTimeH = HALLSAMPPERIOD;
-  TickType_t nextSampleStart =0;
-  uint32_t startTimer=0;
-  uint32_t stopTimer =0;
-  BaseType_t xDeadlineMissed;
-  //int thing = CONFIG_ESP32_WIFI_TX_BUFFER_TYPE;//Convenient link to sdkconfig.h
-  xSemaphoreTake(UDPMutexH,portMAX_DELAY);
-  bool dataReady=false;
-  bool dataSent = false;
-  uint32_t sampCount = 0;
+void IRAM_ATTR sampleHallTask(void * pvParameters){
+  TickType_t lastSampleTime;
+  BaseType_t deadlineMissed;
+  const TickType_t taskDelayTime = HALLSAMPPERIOD;
   while(active){
-    xLastRunTime = xTaskGetTickCount();
+    lastSampleTime = xTaskGetTickCount();
+    xSemaphoreTake(hSampMutex, portMAX_DELAY);
     scanHallMatrix();
-    sampCount++;
-    if (sampCount%(HALLREPORTTIME/HALLSAMPPERIOD) == 0){
-      if ((hallPacketIndex % hallBlockSize)==0 && hallPacketIndex>0){ //Buffer full, time to send
-        //int st = micros(); //Takes roughly 75 uSec to create the task
-        xTaskCreate(packetizeAndSendH,"PackNSendH",2000,NULL,22,NULL);
-        
-        hallPacketIndex = 0; //Reset the packet index for our next data block
-        hallTimeStamp +=(hallBlockSize*HALLREPORTTIME); //Increment the timestamp by the blocksize
-        dataReady = false;
-        
-        delayMicroseconds(95); //Wait for previous task to get established
-        xSemaphoreTake(hMutex, portMAX_DELAY);
-        hallDoc.clear();
-        hallDoc[KEY_HALLTIME] =  hallTimeStamp; //Set the starting timestamp of the next packet
-        xSemaphoreGive(hMutex);
-        dataSent = true;
-        Serial.print("Next Hall Sample Calc:");
-        stopTimer = millis();
-        nextSampleStart=(HALLREPORTTIME*(hallBlockSize) - 2*HALLSAMPPERIOD)- (uint16_t)(stopTimer-startTimer);
-        Serial.println(nextSampleStart,DEC);
-        xDeadlineMissed = xTaskDelayUntil(&xLastRunTime, nextSampleStart);
-        /* June 28/2022 EOD
-        *   Trying to calculate an 'adjusted' sleep interval isn't working out quite right.  I think the best way
-        *   forward is to split the hallSampleTask into 3 parts.
-        *   Sampling Task - High priority always, samples every HALLSAMPPERIOD
-        *   Reporting Task - Fires every HALLREPORTTIME to gather all the averages from the buffer and spit them out to HallDoc
-        *   PacketizeAndSend - Fires everytime the packet index reaches HBS.  (Invoked by report task)
-        * 
-        *   Certainly to be a bit of work to accomplish this...but it will make it more accurate.
-        */
-
-        }else{//Add, we can add the hall sensor samples to the packet
-          //int st = micros();
-          if (hallPacketIndex==0){
-            startTimer=millis();
-            hallDoc[KEY_REALSTART]= startTimer;
-            dataSent=false;
-          }
-          //Add the nested arrays to the JSON doc for this sample
-          Hx[hallPacketIndex] = hallDoc.createNestedArray(HxLabel[hallPacketIndex]);
-          Hy[hallPacketIndex] = hallDoc.createNestedArray(HyLabel[hallPacketIndex]);
-          if (sendHZ) Hz[hallPacketIndex] = hallDoc.createNestedArray(HzLabel[hallPacketIndex]);
-
-          //Populate the nested arrays with the actual sensor values
-          for(int sIndex = 0; sIndex <(NUMSENSORS); sIndex++){
-            Hx[hallPacketIndex].add(sensors[sIndex].avgX );
-            Hy[hallPacketIndex].add(sensors[sIndex].avgY );
-            if (sendHZ) Hz[hallPacketIndex].add(sensors[sIndex].avgZ );
-          }
-          hallPacketIndex++;
-          dataReady = (hallPacketIndex%hallBlockSize == 0);
-          //int et = micros();
-          //Serial.print("HAddXYTime (uSec): ");
-          //Serial.println((et-st),DEC);
-
-        }
-    }
-    if (!dataReady && !dataSent){
-      xDeadlineMissed = xTaskDelayUntil(&xLastRunTime, xTaskDelayTimeH);
-      //vTaskDelay(HALLSAMPPERIOD);
-    }else if(dataReady && !dataSent){
-      hallDoc[KEY_REALSTOP]= millis();
-    }
+    xSemaphoreGive(hSampMutex);
+    if (active) deadlineMissed = xTaskDelayUntil(&lastSampleTime, taskDelayTime);
   }
-  if (DBGSERIAL) Serial.print("HALL SAMPLE TASK HW MARK: ");
+  if (DBGSERIAL) Serial.print("HALL Sample TASK HW MARK: ");
   if (DBGSERIAL) Serial.println(uxTaskGetStackHighWaterMark(NULL),DEC);
-  xSemaphoreGive(UDPMutexH);
   vTaskDelete(NULL);
 }
+
+void IRAM_ATTR pktzAndSendHallTask( void *pvParameters){
+    xSemaphoreTake(UDPMutexH,portMAX_DELAY);
+    xSemaphoreTake(hDocMutex, portMAX_DELAY);
+    if (DBGSERIAL){
+      int jsize = hallDoc.memoryUsage();
+      Serial.print("HallDoc Mem Usage: ");
+      Serial.println(jsize,DEC);
+    }
+    int mSize = serializeMsgPack(hallDoc,hMsgBuffer);
+    xSemaphoreGive(hDocMutex);
+    hSendTaskUDP.beginPacket(srvAddress,srvPort);
+    if (DBGSERIAL){
+      Serial.print("HallDoc msgpack Size: ");
+      Serial.println(mSize,DEC);
+    }
+    hSendTaskUDP.write(hMsgBuffer,mSize);
+    hSendTaskUDP.endPacket();
+    xSemaphoreGive(UDPMutexH);
+    if (DBGSERIAL) Serial.print("HSend TASK HW MARK: ");
+    if (DBGSERIAL) Serial.println(uxTaskGetStackHighWaterMark(NULL),DEC);
+    
+    vTaskDelete(NULL);
+}
+
+void IRAM_ATTR reportHallTask( void * pvParameters){
+  TickType_t lastReportTime;
+  const TickType_t taskDelayTime = HALLREPORTTIME;
+  BaseType_t xDeadlineMissed;
+  //int thing = CONFIG_ESP32_WIFI_TX_BUFFER_TYPE;//Convenient link to sdkconfig.h
+  uint8_t hallPacketIndex = 0;
+  bool dataReady=false;
+  
+  while(active){
+    lastReportTime = xTaskGetTickCount();
+    if (dataReady){ //Buffer full, time to send
+      xTaskCreate(pktzAndSendHallTask,"PackNSendH",2000,NULL,22,NULL);
+        
+      hallPacketIndex = 0; //Reset the packet index for our next data block
+      hallTimeStamp +=(hallBlockSize*HALLREPORTTIME); //Increment the timestamp by the blocksize
+      dataReady = false;
+      
+      delayMicroseconds(95); //Wait for previous task to get established
+      xSemaphoreTake(hDocMutex, portMAX_DELAY);
+      hallDoc.clear();
+      hallDoc[KEY_HALLTIME] =  hallTimeStamp; //Set the starting timestamp of the next packet
+      xSemaphoreGive(hDocMutex);
+    
+      }else{// add current readings to hallDoc
+        //int st = micros();
+
+        if (hallPacketIndex==0) hallDoc[KEY_REALSTART]= millis();
+        
+        //Add the nested arrays to the JSON doc for this sample
+        Hx[hallPacketIndex] = hallDoc.createNestedArray(HxLabel[hallPacketIndex]);
+        Hy[hallPacketIndex] = hallDoc.createNestedArray(HyLabel[hallPacketIndex]);
+        if (sendHZ) Hz[hallPacketIndex] = hallDoc.createNestedArray(HzLabel[hallPacketIndex]);
+        
+        //Populate the nested arrays with the actual sensor values
+        xSemaphoreTake(hSampMutex, portMAX_DELAY);
+        for(int sIndex = 0; sIndex <(NUMSENSORS); sIndex++){
+          Hx[hallPacketIndex].add(sensors[sIndex].avgX );
+          Hy[hallPacketIndex].add(sensors[sIndex].avgY );
+          if (sendHZ) Hz[hallPacketIndex].add(sensors[sIndex].avgZ );
+        }
+        xSemaphoreGive(hSampMutex);
+        hallPacketIndex++;
+        dataReady = (hallPacketIndex%hallBlockSize == 0); 
+      }
+
+      if (!dataReady){
+        xDeadlineMissed = xTaskDelayUntil(&lastReportTime, taskDelayTime);
+        hallDoc[KEY_REALSTOP] = millis();
+      }
+    }//End While(active)
+  if (DBGSERIAL) Serial.print("HALL Report TASK HW MARK: ");
+  if (DBGSERIAL) Serial.println(uxTaskGetStackHighWaterMark(NULL),DEC);
+  vTaskDelete(NULL);
+}
+
 void initIO(){
   pinMode(_CTL_VCC3V3, OUTPUT);
   pinMode(_CTL_ACCEL_PWR, OUTPUT);

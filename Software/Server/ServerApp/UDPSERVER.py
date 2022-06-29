@@ -38,7 +38,7 @@ cfg_fName = 'ServerConfig.json' #Filename of settings storage
 
 #Client Device parameter Adjustments
 #At session start, server sends the following parameters to the ESP32
-ServerWantsHZ = 0	#(Sent to ESP32) 1 = Send Hall Z data, 0 = Don't send
+ServerWantsHZ = 1	#(Sent to ESP32) 1 = Send Hall Z data, 0 = Don't send
 HST = 10 			#(Sent to ESP32)Hall Sensor Sampling Period
 HRT = 100			#(Sent to ESP32)Hall Sensor Report time - [Interval in which MA-Filtered Hall data is sent]
 HAVS = 20	#MAX=60	#(Sent to ESP32)Hall Sensor # of entries in Moving Average Filter
