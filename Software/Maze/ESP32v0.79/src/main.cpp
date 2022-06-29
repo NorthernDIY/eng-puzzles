@@ -54,7 +54,7 @@
 #define SERVERCHECKTIME 3000 //Check server alive every nnnn/1000 seconds
 #define HOME_SWITCH_ACTIVATION_TIME 300 //Time to wait after inital switch open before starting a new session (Part of debounce)
 
-#define DBGSERIAL 0 //Output various information over serial  (Used during parameter tuning)
+#define DBGSERIAL 1 //Output various information over serial  (Used during parameter tuning)
 #define INITSERIAL 1
 //Hall Sensor Matrix Properties
 //#define HALLAVERAGINGSAMPLES 20 //Number of samples in moving average
@@ -62,7 +62,7 @@
 #define NUMSENSORS 24 //Should be 24 in final project
 //#define HALLSAMPPERIOD 25 //4.5ms is absolute min delay between samples
 //#define HALLREPORTTIME 200 //Report time interval *THIS SHOULD BE A MULTIPLE OF HALLSAMPPERIOD*
-#define BLOCKSIZEHALL  14 //14 is about the maximum we can go before fragmentation will start to become an issue - MSGBUFFERSIZE (based on MTU) is the limitation else we start spanning packets
+#define BLOCKSIZEHALL  18 //18 is about the maximum we can go before fragmentation will start to become an issue - MSGBUFFERSIZE (based on MTU) is the limitation else we start spanning packets
 
 uint16_t HALLAVERAGINGSAMPLES = 20;
 uint16_t HALLSAMPPERIOD = 25;
@@ -70,7 +70,7 @@ uint16_t HALLREPORTTIME = 200;
 uint16_t ACCELSAMPPERIOD = 40;
 //Accelerometer Properties
 //#define ACCELSAMPPERIOD 40// 1/(40/1000) = 25 Hz Sample Rate --> Nyquist 20Hz
-#define BLOCKSIZEACCEL 100
+#define BLOCKSIZEACCEL 150
 
 //ALS31313 Hall Sensor parameters (from datasheet)
 #define EEPROMDEFAULT     0b00000000000000000000001111100000
@@ -204,9 +204,12 @@ const uint8_t accelBlockSize = BLOCKSIZEACCEL;
 //Json stores hallBlockSize sample periods worth of data.
 StaticJsonDocument <(1250 * hallBlockSize)> hallDoc;//TUNING - Recalculate packet size based on new Hx# values
 uint8_t hMsgBuffer[MSGBUFFERSIZE];//msgPack Buffer for Hall
-JsonArray Hx[hallBlockSize];
-JsonArray Hy[hallBlockSize];
-JsonArray Hz[hallBlockSize];
+JsonArray Hx;
+JsonArray Hy;
+JsonArray Hz;
+//JsonArray Hx[hallBlockSize];
+//JsonArray Hy[hallBlockSize];
+//JsonArray Hz[hallBlockSize];
 
 JsonArray Ax,Ay,Az;
 
@@ -1036,7 +1039,10 @@ void IRAM_ATTR reportHallTask( void * pvParameters){
   //int thing = CONFIG_ESP32_WIFI_TX_BUFFER_TYPE;//Convenient link to sdkconfig.h
   uint8_t hallPacketIndex = 0;
   bool dataReady=false;
-  
+  Hx = hallDoc.createNestedArray("x");
+  Hy = hallDoc.createNestedArray("y");
+  if (sendHZ) Hz = hallDoc.createNestedArray("z");
+
   while(active){
     lastReportTime = xTaskGetTickCount();
     if (dataReady){ //Buffer full, time to send
@@ -1050,6 +1056,9 @@ void IRAM_ATTR reportHallTask( void * pvParameters){
       xSemaphoreTake(hDocMutex, portMAX_DELAY);
       hallDoc.clear();
       hallDoc[KEY_HALLTIME] =  hallTimeStamp; //Set the starting timestamp of the next packet
+      Hx = hallDoc.createNestedArray("x");
+      Hy = hallDoc.createNestedArray("y");
+      if (sendHZ) Hz = hallDoc.createNestedArray("z");
       xSemaphoreGive(hDocMutex);
     
       }else{// add current readings to hallDoc
@@ -1058,17 +1067,26 @@ void IRAM_ATTR reportHallTask( void * pvParameters){
         if (hallPacketIndex==0) hallDoc[KEY_REALSTART]= millis();
         
         //Add the nested arrays to the JSON doc for this sample
-        Hx[hallPacketIndex] = hallDoc.createNestedArray(HxLabel[hallPacketIndex]);
-        Hy[hallPacketIndex] = hallDoc.createNestedArray(HyLabel[hallPacketIndex]);
-        if (sendHZ) Hz[hallPacketIndex] = hallDoc.createNestedArray(HzLabel[hallPacketIndex]);
+        //Hx[hallPacketIndex] = hallDoc.createNestedArray(HxLabel[hallPacketIndex]);
+        //Hy[hallPacketIndex] = hallDoc.createNestedArray(HyLabel[hallPacketIndex]);
+        //if (sendHZ) Hz[hallPacketIndex] = hallDoc.createNestedArray(HzLabel[hallPacketIndex]);
+
+        
         
         //Populate the nested arrays with the actual sensor values
         xSemaphoreTake(hSampMutex, portMAX_DELAY);
-        for(int sIndex = 0; sIndex <(NUMSENSORS); sIndex++){
+        /*for(int sIndex = 0; sIndex <(NUMSENSORS); sIndex++){
           Hx[hallPacketIndex].add(sensors[sIndex].avgX );
           Hy[hallPacketIndex].add(sensors[sIndex].avgY );
           if (sendHZ) Hz[hallPacketIndex].add(sensors[sIndex].avgZ );
+        }*/
+        
+        for(int sIndex = 0; sIndex <(NUMSENSORS); sIndex++){
+          Hx.add(sensors[sIndex].avgX );
+          Hy.add(sensors[sIndex].avgY );
+          if (sendHZ) Hz.add(sensors[sIndex].avgZ );
         }
+
         xSemaphoreGive(hSampMutex);
         hallPacketIndex++;
         dataReady = (hallPacketIndex%hallBlockSize == 0); 
