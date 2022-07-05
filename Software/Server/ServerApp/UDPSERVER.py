@@ -147,35 +147,28 @@ def newSQLdb(fName): #Setup the session specific DB
     sqlConn = sqlite3.connect(fName, timeout = 10)
     cursor = sqlConn.cursor()
     createParamTable = "CREATE TABLE Params(SessionID INTEGER PRIMARY KEY, StartTime TEXT, IP TEXT, StopTime TEXT, ABS INTEGER, HBS INTEGER, AST INTEGER, HST INTEGER, NumSensors Integer, FWVer TEXT, USEHZ Integer);"
+
+    createHallTable = "CREATE Table Hall(time INTEGER,"
+    createHallTable += "x0 DECIMAL,x1 DECIMAL,x2 DECIMAL,x3 DECIMAL,x4 DECIMAL,x5 DECIMAL,x6 DECIMAL,x7 DECIMAL,x8 DECIMAL,x9 DECIMAL,x10 D1ECIMAL,x11 DECIMAL,"
+    createHallTable += "x12 DECIMAL,x13 DECIMAL,x14 DECIMAL,x15 DECIMAL,x16 DECIMAL,x17 DECIMAL,x18 DECIMAL,x19 DECIMAL,x20 DECIMAL,x21 DECIMAL,x22 DECIMAL,x23 DECIMAL,"
+    createHallTable += "y0 DECIMAL,y1 DECIMAL,y2 DECIMAL,y3 DECIMAL,y4 DECIMAL,y5 DECIMAL,y6 DECIMAL,y7 DECIMAL,y8 DECIMAL,y9 DECIMAL,y10 D1ECIMAL,y11 DECIMAL,"
+    createHallTable += "y12 DECIMAL,y13 DECIMAL,y14 DECIMAL,y15 DECIMAL,y16 DECIMAL,y17 DECIMAL,y18 DECIMAL,y19 DECIMAL,y20 DECIMAL,y21 DECIMAL,y22 DECIMAL,y23 DECIMAL,"
     if UseHZ:
-        #createHallTable = "CREATE TABLE Hall(time INTEGER, senseNum INTEGER, x DECIMAL, y DECIMAL, z DECIMAL, PRIMARY KEY(senseNum, time));"
-        
-        
-        #JUNE 29/2022 EOD - Changing SQL table to be column heavy instead of row heavy, fewer queries = faster SQL
-        
-        
-        chtPrefix = "CREATE Table Hall(time INTEGER,"
-        chtSensX1 = "x0 DECIMAL,x1 DECIMAL,x2 DECIMAL,x3 DECIMAL,x4 DECIMAL,x5 DECIMAL,x6 DECIMAL,x7 DECIMAL,x8 DECIMAL,x9 DECIMAL,x10 D1ECIMAL,x11 DECIMAL,"
-        chtSensX2 = "x12 DECIMAL,x13 DECIMAL,x14 DECIMAL,x15 DECIMAL,x16 DECIMAL,x17 DECIMAL,x18 DECIMAL,x19 DECIMAL,x20 DECIMAL,x21 DECIMAL,x22 DECIMAL,x23 DECIMAL"
-        
-        chtSensY1 = "y0 DECIMAL,y1 DECIMAL,y2 DECIMAL,y3 DECIMAL,y4 DECIMAL,y5 DECIMAL,y6 DECIMAL,y7 DECIMAL,y8 DECIMAL,y9 DECIMAL,y10 D1ECIMAL,y11 DECIMAL,"
-        chtSensY2 = "y12 DECIMAL,y13 DECIMAL,y14 DECIMAL,y15 DECIMAL,y16 DECIMAL,y17 DECIMAL,y18 DECIMAL,y19 DECIMAL,y20 DECIMAL,y21 DECIMAL,y22 DECIMAL,y23 DECIMAL"
-        
-        chtSensY1 = "y0 DECIMAL,y1 DECIMAL,y2 DECIMAL,y3 DECIMAL,y4 DECIMAL,y5 DECIMAL,y6 DECIMAL,y7 DECIMAL,y8 DECIMAL,y9 DECIMAL,y10 D1ECIMAL,y11 DECIMAL,"
-        chtSensY2 = "y12 DECIMAL,y13 DECIMAL,y14 DECIMAL,y15 DECIMAL,y16 DECIMAL,y17 DECIMAL,y18 DECIMAL,y19 DECIMAL,y20 DECIMAL,y21 DECIMAL,y22 DECIMAL,y23 DECIMAL"
-        
-        chtPostfix = "Primary KEY(time));"
-        createHallTable = chtPrefix + chtSensx1 + chtSensx2 + chtPostfix
+        createHallTable += "z0 DECIMAL,z1 DECIMAL,z2 DECIMAL,z3 DECIMAL,z4 DECIMAL,z5 DECIMAL,z6 DECIMAL,z7 DECIMAL,z8 DECIMAL,z9 DECIMAL,z10 D1ECIMAL,z11 DECIMAL,"
+        createHallTable += "z12 DECIMAL,z13 DECIMAL,z14 DECIMAL,z15 DECIMAL,z16 DECIMAL,z17 DECIMAL,z18 DECIMAL,z19 DECIMAL,z20 DECIMAL,z21 DECIMAL,z22 DECIMAL,z23 DECIMAL"
         
         createHallCalNoiseTable = "CREATE TABLE HallCalNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, z DECIMAL, PRIMARY KEY(senseNum));"
         createHallCalBSTable = "CREATE TABLE HallCalBS(BSX DECIMAL, BSY DECIMAL, BSZ DECIMAL);"
     else:
-        createHallTable = "CREATE TABLE Hall(time INTEGER, senseNum INTEGER, x DECIMAL, y DECIMAL, PRIMARY KEY(senseNum, time));"
         createHallCalNoiseTable = "CREATE TABLE HallCalNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, PRIMARY KEY(senseNum));"
         createHallCalBSTable = "CREATE TABLE HallCalBS(BSX DECIMAL, BSY DECIMAL);"
+    
+    createHallTable += ",Primary KEY(time));"
+    
     createAccelTable = "CREATE TABLE Accel(time integer PRIMARY KEY, x DECIMAL, y DECIMAL, z DECIMAL);"
     cursor.execute(createParamTable)
     cursor.execute(createHallTable)
+    print (createHallTable)
     cursor.execute(createHallCalNoiseTable)
     cursor.execute(createHallCalBSTable)
     cursor.execute(createAccelTable)
@@ -187,38 +180,37 @@ def InsertHallData(messageData):
     #return
     global currHTime
     if UseHZ:
-        SqlString = "INSERT INTO Hall(time, senseNum, x, y, z) Values( ?, ?, ?, ?, ?);"
+        SqlString = "INSERT INTO Hall(time,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,x16,x17,x18,x19,x20,x21,x22,x23,y0,y1,y2,y3,y4,y5,y6,y7,y8,y9,y10,y11,y12,y13,y14,y15,y16,y17,y18,y19,y20,y21,y22,y23,z0,z1,z2,z3,z4,z5,z6,z7,z8,z9,z10,z11,z12,z13,z14,z15,z16,z17,z18,z19,z20,z21,z22,z23) Values("
     else:
-        SqlString = "INSERT INTO Hall(time, senseNum, x, y) Values( ?, ?, ?, ?);"
-    #HallDict = {}
+        SqlString = "INSERT INTO Hall(time,x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10,x11,x12,x13,x14,x15,x16,x17,x18,x19,x20,x21,x22,x23,y0,y1,y2,y3,y4,y5,y6,y7,y8,y9,y10,y11,y12,y13,y14,y15,y16,y17,y18,y19,y20,y21,y22,y23) Values("
     currHTime = messageData["TH"] 
-    i = 0
-    """for t in range(0,HBSz):#outerloop = time
-        xTag = "x" + str(i)
-        yTag = "y" + str(i)
-        if UseHZ:
-            zTag = "z" + str(i)
-        for s in range(0,NumSensors):#innerloop = sensor
-            if UseHZ:
-                sqlData = (str(t*HST + currHTime),str(s), messageData[xTag][s], messageData[yTag][s], messageData[zTag][s])
-            else:             
-                sqlData = (str(t*HST + currHTime),str(s), messageData[xTag][s], messageData[yTag][s])
-            cursor.execute(SqlString,sqlData)
-        i+=1
-        sqlConn.commit()"""
     xTag = "x"
     yTag = "y"
     zTag = "z"
     t=0
     for i in range(0,HBSz*NumSensors, NumSensors):#outerloop = time
-        
+        sqlData = str(t*HRT+currHTime)
+        sqlDataX = ''
+        sqlDataY = ''
+        sqlDataZ = ''
         for s in range(0,NumSensors):#innerloop = sensor
-            if UseHZ:
-                sqlData = (str(t*HRT + currHTime),str(s), messageData[xTag][i+s], messageData[yTag][i+s], messageData[zTag][i+s])
-                #pprint(sqlData)
-            else:             
-                sqlData = (str(t*HRT + currHTime),str(s), messageData[xTag][i+s], messageData[yTag][i+s])
-            cursor.execute(SqlString,sqlData)
+            sqlDataX += "," + str(messageData[xTag][i+s])
+            sqlDataY += "," + str(messageData[yTag][i+s]    )
+            if (UseHZ):
+                sqlDataZ += "," + str(messageData[zTag][i+s])
+               
+        if (UseHZ):
+            sqlData+= sqlDataX + sqlDataY + sqlDataZ +")"
+        else:
+            sqlData+= sqlDataX + sqlDataY +")"
+        
+        #print("SQLDATA:", end = "")
+        #print (sqlData)
+        
+        nextSqlString =  SqlString + sqlData
+        #print("NextSqlString @%d   :" %currHTime, end="")
+        #print(nextSqlString)
+        cursor.execute(nextSqlString)
         sqlConn.commit()
         t+=1
 
@@ -295,7 +287,7 @@ elif alen==2:
                 if item.endswith(".db"):
                     os.remove( os.path.join( directory, item ) )
             print("RESET\tSession DB files Removed")
-            sleep(1)
+            exit()
 elif alen==1:
             print("Using settings loaded from file")
 else:
