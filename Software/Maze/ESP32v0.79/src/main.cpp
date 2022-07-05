@@ -41,9 +41,10 @@
 
 #define SERVERCHECKTIME 3000 //Check server alive every nnnn/1000 seconds
 #define HOME_SWITCH_ACTIVATION_TIME 300 //Time to wait after inital switch open before starting a new session (Part of debounce)
+#define SPINNERTASKDELAY 500 //Time between spins for the user feedback spinner task
 
-#define DBGSERIAL 1 //Output various information over serial  (Used during parameter tuning)
-#define INITSERIAL 1
+#define DBGSERIAL 0 //Output various information over serial  (Used during parameter tuning)
+#define INITSERIAL 0
 //Hall Sensor Matrix Properties
 //#define HALLAVERAGINGSAMPLES 20 //Number of samples in moving average
 #define HALLAVERAGINGSAMPLES_MAX 60  //Max size of moving averange ring buffer
@@ -1314,7 +1315,7 @@ void spinnerTask( void * pvParameters){
       break;
       
     }
-    delay(1000);
+    delay(SPINNERTASKDELAY);
   }
   ledRedOff();
   noDispChange = false;

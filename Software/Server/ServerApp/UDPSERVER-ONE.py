@@ -4,7 +4,10 @@
 import socket, sqlite3,os
 import AMazeThing_Keys as KEY
 import AMazeThingSessionFormat as MDK
-from AMazeThingSessionFormat import sessionObject
+from AMazeThingSessionFormat import SessionObject
+from AMazeThingSessionFormat import DBSessionObjectTags as metaTags
+from AMazeThingSessionFormat import DBSessionObjectTagTypes as metaTagTypes
+from AMazeThingSessionFormat import KPT_HTAGS, KPT_HTAGTYPES, KPT_ATAGS, KPT_ATAGTYPES
 from msgpack import loads as dec_msgpack
 from msgpack import dumps as enc_msgpack
 from sys import argv as sysArgs
@@ -44,7 +47,8 @@ localPort   = localPort_d
 bufferSize  = bufferSize_d
 
 DBG_CLEAR_EVERY_RUN = 1
-DBG_DEFIP = "192.168.137.1"
+#DBG_DEFIP = "192.168.137.1"
+DBG_DEFIP = "10.42.0.1"
 DBG_DEFPT = 20002
 DBG_CAP_PKT_TIMES =1
 
@@ -132,13 +136,15 @@ def newSQLdb(mySession): #Setup the session specific DB
     UseHZ = mySession[MDK.HZ]
     NumHallSensors = mySession[MDK.NHS]
     
-    createMetaDataTable = "CREATE TABLE MetaData(SessionID INTEGER PRIMARY KEY, IP TEXT, StartTime TEXT, StopTime TEXT, ABS INTEGER, AST INTEGER, HBS INTEGER, HST INTEGER, HallMASize Integer, HRT Integer, USEHZ Integer, NumSensors Integer, FWVer TEXT, BadPacketCount Integer, ESP_START Integer, ESP_STOP Integer);"
-    if DBG_CAP_PKT_TIMES:
-        createHPktTimesTable = "CREATE TABLE HPacketTimes(HTime Integer, STime Integer, ETime Integer);"
-        createAPktTimesTable = "CREATE TABLE APacketTimes(ATime Integer, STime Integer, ETime Integer);"
-        cursor.execute(createHPktTimesTable)
-        cursor.execute(createAPktTimesTable)
-
+    #Create Table for metadata
+    createMetaDataTable = "CREATE TABLE MetaData("
+    for tagPos in range(0, len(metaTags)):
+        if tagPos!=0:
+            createMetaDataTable +=", "
+        createMetaDataTable += metaTags[tagPos] + " " + metaTagTypes[tagPos]
+    createMetaDataTable += ");"
+    
+    #Create Table for Hall Data, Also create the Sensor Noise Tables and BIOSAVART RT Constant tables        
     createHallTable = "CREATE Table Hall(time INTEGER"
     for i in range(0,NumHallSensors):
         createHallTable+="," +"x" + str(i) + " DECIMAL"
@@ -148,27 +154,39 @@ def newSQLdb(mySession): #Setup the session specific DB
     if UseHZ:
         for i in range(0,NumHallSensors):
             createHallTable+="," +"z" + str(i) + " DECIMAL"
-        createHallCalNoiseTable = "CREATE TABLE HallCalNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, z DECIMAL, PRIMARY KEY(senseNum));"
-        createHallCalBSTable = "CREATE TABLE HallCalBS(BSX DECIMAL, BSY DECIMAL, BSZ DECIMAL);"
+        createHallCalNoiseTable = "CREATE TABLE HNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, z DECIMAL, PRIMARY KEY(senseNum));"
+        createHallCalBSTable = "CREATE TABLE HBioSav(BSX DECIMAL, BSY DECIMAL, BSZ DECIMAL);"
     else:
-        createHallCalNoiseTable = "CREATE TABLE HallCalNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, PRIMARY KEY(senseNum));"
-        createHallCalBSTable = "CREATE TABLE HallCalBS(BSX DECIMAL, BSY DECIMAL);"
+        createHallCalNoiseTable = "CREATE TABLE HNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, PRIMARY KEY(senseNum));"
+        createHallCalBSTable = "CREATE TABLE HBioSav(BSX DECIMAL, BSY DECIMAL);"
     
     createHallTable += ",Primary KEY(time));"
     
-    createAccelTable = "CREATE TABLE Accel(time integer PRIMARY KEY, x DECIMAL, y DECIMAL, z DECIMAL);"
-    #print (createHallTable)
-    #print (createMetaDataTable)
-    #print (createHallCalNoiseTable)
-    #print (createHallCalBSTable)
-    #print (createAccelTable)
+    #Create Table for Accelerometer Data
+    createAccelTable = "CREATE TABLE Accel(time INTEGER PRIMARY KEY, x DECIMAL, y DECIMAL, z DECIMAL);"
     
     cursor.execute(createMetaDataTable)
     cursor.execute(createHallTable)
-    
     cursor.execute(createHallCalNoiseTable)
     cursor.execute(createHallCalBSTable)
     cursor.execute(createAccelTable)
+    
+    #Create the table of packet times if we are interested in that at all...
+    if DBG_CAP_PKT_TIMES:
+        createHPktTimesTable = "CREATE TABLE HPacketTimes("
+        createAPktTimesTable = "CREATE TABLE APacketTimes("
+        for tagPos in range(0, len(KPT_HTAGS)):
+            if tagPos!=0:
+                createAPktTimesTable +=", "
+                createHPktTimesTable +=", "
+            createHPktTimesTable += KPT_HTAGS[tagPos] +" " + KPT_HTAGTYPES[tagPos]
+            createAPktTimesTable += KPT_ATAGS[tagPos] +" " + KPT_ATAGTYPES[tagPos]
+
+        createHPktTimesTable += ");"
+        createAPktTimesTable += ");"
+        cursor.execute(createHPktTimesTable)
+        cursor.execute(createAPktTimesTable)
+    
     sqlConn.commit()
 
 def endSession(mySession, offlineClose):
@@ -176,22 +194,38 @@ def endSession(mySession, offlineClose):
     cursor = mySession[MDK.SQC]
     sqlConn = mySession[MDK.SQP]
     lastSessionID = mySession[MDK.ID]
+    mySession[MDK.SC] = 1
+    mySession[MDK.DBG_KPT] = DBG_CAP_PKT_TIMES
     if offlineClose:
         mySession[MDK.ET] = mySession[MDK.LDT]
     else:
         mySession[MDK.ET] = str(datetime.now())
     
-    mySession[MDK.SC] = True
-    sqlCmd = "INSERT INTO MetaData(SessionID, IP, StartTime, StopTime, ABS, AST, HBS, HST, HallMASize, HRT, UseHZ, NumSensors, FWVer, BadPacketCount, ESP_START, ESP_STOP) VALUES ("
+    sqlCmdp1 = "Insert Into MetaData("
+    sqlCmdp2 = ") Values("
+    sqlData = ""
+    for tagPos in range(0, len(metaTags)):
+        if tagPos!=0:
+            sqlCmdp1 +=", "
+            sqlData +=", "
+        sqlCmdp1 += metaTags[tagPos]
+        if metaTagTypes[tagPos] == "TEXT":
+            sqlData+="'"
+        if metaTags[tagPos] == MDK.IP:
+            sqlData += str(mySession[metaTags[tagPos]][0]) + ":" +str(mySession[metaTags[tagPos]][1])
+        else:
+            sqlData += str(mySession[metaTags[tagPos]])
+        if metaTagTypes[tagPos] == "TEXT":
+            sqlData+="'"
     
-    sqlData = str(mySession[MDK.ID]) +",'" + mySession[MDK.IP][0]+":"+str(mySession[MDK.IP][1]) + "','" + mySession[MDK.ST] +"','"
-    sqlData +=  mySession[MDK.ET] +"'," +str(mySession[MDK.ABS]) + "," + str(mySession[MDK.AST])
-    sqlData += "," + str(mySession[MDK.HBS]) +"," + str(mySession[MDK.HST]) + ","
-    sqlData += str(mySession[MDK.HMA])  + "," +str(mySession[MDK.HRT]) + "," +str(mySession[MDK.HZ])
-    sqlData += "," +str(mySession[MDK.NHS]) + ",'" +str(mySession[MDK.FWV])  +"'," +str(mySession[MDK.BPC])+","
-    sqlData += str(mySession[MDK.SS])+"," +str(mySession[MDK.ES])
-    
-    sqlCmd += sqlData + ");"
+    sqlCmd = sqlCmdp1 + sqlCmdp2 + sqlData +")"
+    print(sqlCmd)
+    #sqlData = str(mySession[MDK.ID]) +",'" + mySession[MDK.IP][0]+":"+str(mySession[MDK.IP][1]) + "','" + mySession[MDK.ST] +"','"
+    #sqlData +=  mySession[MDK.ET] +"'," +str(mySession[MDK.ABS]) + "," + str(mySession[MDK.AST])
+    #sqlData += "," + str(mySession[MDK.HBS]) +"," + str(mySession[MDK.HST]) + ","
+    #sqlData += str(mySession[MDK.HMA])  + "," +str(mySession[MDK.HRT]) + "," +str(mySession[MDK.HZ])
+    #sqlData += "," +str(mySession[MDK.NHS]) + ",'" +str(mySession[MDK.FWV])  +"'," +str(mySession[MDK.BPC])+","
+    #sqlData += str(mySession[MDK.DBG_SS])+"," +str(mySession[MDK.DBG_SE])
     cursor.execute(sqlCmd)
     sqlConn.commit()
     sqlConn.close()
@@ -208,7 +242,7 @@ def InsertHallData(messageData, mySession):
     HRT = mySession[MDK.HRT]
     if DBG_CAP_PKT_TIMES:
         SqlData = (messageData[KEY.HALLTIME],messageData[KEY.REALSTART], messageData[KEY.REALSTOP])
-        QueryString = "INSERT INTO HPacketTimes(HTime, STime, ETime) Values(?, ?, ?);"
+        QueryString = "INSERT INTO HPacketTimes(HTime, Start, End) Values(?, ?, ?);"
         cursor.execute(QueryString, SqlData)
     if UseHZ:
         SqlString = "INSERT INTO Hall(time,x0,y0,z0,x1,y1,z1,x2,y2,z2,x3,y3,z3,x4,y4,z4,x5,y5,z5,x6,y6,z6,x7,y7,z7,x8,y8,z8,x9,y9,z9,x10,y10,z10,x11,y11,z11,x12,y12,z12,x13,y13,z13,x14,y14,z14,x15,y15,z15,x16,y16,z16,x17,y17,z17,x18,y18,z18,x19,y19,z19,x20,y20,z20,x21,y21,z21,x22,y22,z22,x23,y23,z23) Values("
@@ -241,11 +275,11 @@ def InsertHallCal(messageData, mySession):
     NumSensors = mySession[MDK.NHS]
     
     if UseHZ:
-        SqlString_a = "INSERT INTO HallCalNoise(senseNum, x, y, z) Values( ?, ?, ?, ?);"
-        SqlString_b = "INSERT INTO HallCalBS(BSX, BSY, BSZ) Values( ?, ?, ?);"
+        SqlString_a = "INSERT INTO HNoise(senseNum, x, y, z) Values( ?, ?, ?, ?);"
+        SqlString_b = "INSERT INTO HBioSav(BSX, BSY, BSZ) Values( ?, ?, ?);"
     else:
-        SqlString_a = "INSERT INTO HallCalNoise(senseNum, x, y) Values( ?, ?, ?);"
-        SqlString_b = "INSERT INTO HallCalBS(BSX, BSY) Values( ?, ?);"
+        SqlString_a = "INSERT INTO HNoise(senseNum, x, y) Values( ?, ?, ?);"
+        SqlString_b = "INSERT INTO HBioSav(BSX, BSY) Values( ?, ?);"
     for s in range(0,NumSensors):#innerloop = sensor
         if UseHZ:
             sqlData_a = (str(s), messageData[KEY.HCALX][s], messageData[KEY.HCALY][s], messageData[KEY.HCALZ][s])
@@ -270,7 +304,7 @@ def InsertAccelData(messageData, mySession):
     AST = mySession[MDK.AST]
     if DBG_CAP_PKT_TIMES:
         SqlData = (messageData[KEY.ACCELTIME],messageData[KEY.REALSTART], messageData[KEY.REALSTOP])
-        QueryString = "INSERT INTO APacketTimes(ATime, STime, ETime) Values(?, ?, ?);"
+        QueryString = "INSERT INTO APacketTimes(ATime, Start, End) Values(?, ?, ?);"
         cursor.execute(QueryString, SqlData)
     
     SqlString = "INSERT INTO Accel(time, x, y, z) Values( ?, ?, ?, ?);"
@@ -413,7 +447,7 @@ def main():
                     msgToClient = enc_msgpack(SIDresponse)
                     UDPServerSocket.sendto(msgToClient, address)
                     
-                    Sessions.append(sessionObject.copy())
+                    Sessions.append(SessionObject.copy())
                     mySession = Sessions[-1] #We just added it, so it's the last entry
                     mySession[MDK.ID] = sessionID
                     mySession[MDK.IP] = address
@@ -427,12 +461,12 @@ def main():
                     mySession[MDK.HZ] = (unpacked[KEY.HALLHASZ]==1)&(ServerWantsHZ==1)
                     mySession[MDK.NHS] = unpacked[KEY.NUMHALLSENSORS]
                     mySession[MDK.FWV] = unpacked[KEY.FWVER]
-                    mySession[MDK.SS] = unpacked[KEY.STARTSESSION]
+                    mySession[MDK.DBG_SS] = unpacked[KEY.STARTSESSION]
                     newSQLdb(mySession)
                     #print(mySession)
     
                 elif ((mType==msgType.END) and sessionMatch):
-                    mySession[MDK.ES] = unpacked[KEY.ENDSESSION]
+                    mySession[MDK.DBG_SE] = unpacked[KEY.ENDSESSION]
                     endSession(mySession,False)
                     byeResponse = {KEY.SRVOK: mySession[MDK.LHS]} #Send time stamp of first entry of last packet (probably wont be used)
                     byeBytes =enc_msgpack(byeResponse)
