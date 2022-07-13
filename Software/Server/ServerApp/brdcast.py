@@ -6,7 +6,7 @@ import netifaces
 VERSIONNUM = 0.79
 SERVICETXT = "MAZE_SERVER"
 BRDCASTPORT = 7777
-DEFAULTSERVICEPORT = 20002
+HELLOSERVICEPORT = 1999
 specificIP = "0.0.0.0"
 
 """
@@ -48,7 +48,7 @@ def broadCastService(port, interval, specificIP):
 
 
 if __name__== '__main__':
-    port = DEFAULTSERVICEPORT
+    port = HELLOSERVICEPORT
     try:
         args=sys.argv
         alen=len(args)

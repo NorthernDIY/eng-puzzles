@@ -22,6 +22,7 @@ HCALZ ="H_CAL_Z"#Run time baseline noise data sent at start of session
 SRVCHECK ="CHK"#Periodic message sent with this queries server to ensure its still active
 SRVOK ="OK"#Response from server expected from SRVCHECK
 SESSIONID ="ID"#This key is the session id
+SESSIONPORT = "PORT"
 REALSTART ="S"#Micros() of packet sampling start
 REALSTOP ="E"#Micros() of packet sampling end
 

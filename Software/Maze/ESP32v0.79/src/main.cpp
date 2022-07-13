@@ -71,11 +71,11 @@ uint16_t ACCELSAMPPERIOD = 40;
 //Server Properties to look for (and what port to listen for service broadcast
 #define MINSERVERVER 0.79
 #define SERVICEREQUIRED "MAZE_SERVER"
-#define SERVICEBROADCASTPORT 7777
+#define SERVICEBROADCASTPORT 1998
 //Keys used in service broadcast message
 #define KEY_SERVICETYPE "SVC"
 #define KEY_SERVICEVER "VER"
-#define KEY_SERVICEPORT "PORT"
+#define KEY_STARTPORT "PORT"
 
 //MSGPACK (JSONDOC) KEYS
 #define KEY_HALLTIME "TH" //Presence of key when sent to server indicates Hall packet (this is the time stamp)
@@ -108,6 +108,7 @@ uint16_t ACCELSAMPPERIOD = 40;
 #define KEY_HALLSAMPLETIME "HST"  //Session start reply sends this key with sample time in ms for Hall sensor matrix
 #define KEY_HALLMASIZE "HMS" //Session start reply sends this key with # of samples in ring buffer used for moving average of hall sensors
 #define KEY_HALLREPORTTIME "HRT" //Session start reply sends this key with how often we report the hall sensor MAfiltered output
+#define KEY_SESSIONPORT "PORT"
 //see HALLAVERAGINGSAMPLES_MAX above
 
 //I2C Device Addresses
@@ -192,7 +193,8 @@ float BiotSavartCalConstantZ = 0.0;
 //Used for listening to service announce, checking, initiating and ending sessions with server
 WiFiUDP wifiUDPclient;
 
-uint16_t srvPort = 20002; //Default port is 20002, but this is actually set by service broadcast at startup
+uint16_t srvStartPort = 1999; //Default port is 1999, but this is actually set by service broadcast at startup
+uint16_t sessionPort = 65532; //Port set at session negotiation
 const uint16_t bcastPort = SERVICEBROADCASTPORT; //Port that device listens to service broadcasts on.
 IPAddress srvAddress;
 
@@ -393,7 +395,6 @@ void setup()
   hallSensorZeroCal();
   delay(1000); 
   bool server_found = findServer(true);//This never returns unless a service announce has been heard.
-  wifiUDPclient.begin(srvPort);//Start watching server comms port
   
   if (DBGSERIAL)Serial.println("AMazeThing...\nReady state starts in 1 Sec");
   delay(1000);
@@ -456,7 +457,7 @@ void CheckReady(){
     oled.setCursor(0,6);
     oled.clearToEOL();
     oled.println("  Found!");
-    wifiUDPclient.begin(srvPort);//Start watching server specified port
+    wifiUDPclient.begin(srvStartPort);//Start watching server specified port
   }
 }
 void CheckServerAlive(bool useDisp, bool findServerIfLost){
@@ -468,14 +469,14 @@ void CheckServerAlive(bool useDisp, bool findServerIfLost){
     oled.print(".");
   }
   if ((uint32_t)srvAddress != 0){
-    wifiUDPclient.begin(srvPort);
+    wifiUDPclient.begin(srvStartPort);
     int trials = 0;
     while(!serverOK && trials<30){
       StaticJsonDocument <100> chkDoc;
       chkDoc[KEY_SRVCHECK] = 1;
       uint8_t buffer[100];
       uint8_t msgLen = serializeMsgPack(chkDoc,buffer);
-      wifiUDPclient.beginPacket(srvAddress,srvPort);
+      wifiUDPclient.beginPacket(srvAddress,srvStartPort);
       wifiUDPclient.write(buffer,msgLen);
       wifiUDPclient.endPacket();
       delay(100);
@@ -604,7 +605,7 @@ void endSession(){
     byeDoc[KEY_SESSIONID] = mySession;
     uint8_t buffer[75];
     uint8_t msgLen = serializeMsgPack(byeDoc,buffer);
-    wifiUDPclient.beginPacket(srvAddress,srvPort);
+    wifiUDPclient.beginPacket(srvAddress,sessionPort);
     wifiUDPclient.write(buffer,msgLen);
     wifiUDPclient.endPacket();
     lastSession = mySession;
@@ -651,7 +652,7 @@ void sendCalData(){
   uint16_t bufLen = serializeMsgPack(calDoc,msgPackBuffer);
   if (DBGSERIAL)Serial.print("calDoc msgpak size: ");
   if (DBGSERIAL)Serial.println(bufLen);
-  wifiUDPclient.beginPacket(srvAddress,srvPort);
+  wifiUDPclient.beginPacket(srvAddress,sessionPort);
   wifiUDPclient.write(msgPackBuffer,bufLen);
   wifiUDPclient.endPacket();
   calDoc.clear();
@@ -847,7 +848,7 @@ void IRAM_ATTR pktzAndSendAccelTask( void *pvParameters){
     }
     int mSize = serializeMsgPack(accelDoc,aMsgBuffer);
     xSemaphoreGive(aDocMutex);
-    aSendTaskUDP.beginPacket(srvAddress,srvPort);
+    aSendTaskUDP.beginPacket(srvAddress,sessionPort);
     
     aSendTaskUDP.write(aMsgBuffer,mSize);
     aSendTaskUDP.endPacket();
@@ -943,7 +944,7 @@ void IRAM_ATTR pktzAndSendHallTask( void *pvParameters){
     }
     int mSize = serializeMsgPack(hallDoc,hMsgBuffer);
     xSemaphoreGive(hDocMutex);
-    hSendTaskUDP.beginPacket(srvAddress,srvPort);
+    hSendTaskUDP.beginPacket(srvAddress,sessionPort);
     if (DBGSERIAL){
       Serial.print("HallDoc msgpack Size: ");
       Serial.println(mSize,DEC);
@@ -1069,7 +1070,7 @@ void newSessionConnect(){
   startDoc[KEY_HALLHASZ] = 1;
   uint8_t msgPackBuffer[500];
   uint16_t bufLen = serializeMsgPack(startDoc,msgPackBuffer);
-  wifiUDPclient.beginPacket(srvAddress,srvPort);
+  wifiUDPclient.beginPacket(srvAddress,srvStartPort);
   wifiUDPclient.write(msgPackBuffer,bufLen);
   wifiUDPclient.endPacket();
   startDoc.clear();
@@ -1092,7 +1093,8 @@ void newSessionConnect(){
         bool p5 = serverResponse.containsKey(KEY_HALLMASIZE);
         bool p6 = serverResponse.containsKey(KEY_HALLREPORTTIME);
         bool p7 = serverResponse.containsKey(KEY_SENDSTS);
-        bool AllKeysPresent = p1&&p2&&p3&&p4&&p5&&p6&&p7;
+        bool p8 = serverResponse.containsKey(KEY_SESSIONPORT);
+        bool AllKeysPresent = p1&&p2&&p3&&p4&&p5&&p6&&p7&&p8;
         if (AllKeysPresent){
           mySession = serverResponse[KEY_SESSIONID];
           if (mySession>0){
@@ -1103,6 +1105,7 @@ void newSessionConnect(){
             HALLAVERAGINGSAMPLES = serverResponse[KEY_HALLMASIZE];
             HALLREPORTTIME = serverResponse[KEY_HALLREPORTTIME];
             SENDSTS = serverResponse[KEY_SENDSTS];
+            sessionPort = serverResponse[KEY_SESSIONPORT];
           }
         }else{
           serverResponseResult = RESP_BAD_MK;//Missing Keys
@@ -1187,7 +1190,7 @@ bool findServer(bool updateDisplay){
         if (serviceMatch){
           float verTag = findServerDoc[KEY_SERVICEVER];
           versionMatch = (verTag>=MINSERVERVER);
-          srvPort = findServerDoc[KEY_SERVICEPORT];
+          srvStartPort = findServerDoc[KEY_STARTPORT];
           srvAddress=wifiUDPclient.remoteIP();
           serverFound = true;
           if (updateDisplay){
@@ -1203,8 +1206,8 @@ bool findServer(bool updateDisplay){
             oled.print(verTag,2);
             oled.setCursor(51,7);
             oled.print("P:");
-            oled.print(srvPort,DEC);
-            if (srvPort == SERVICEBROADCASTPORT ) oled.print("(!)");
+            oled.print(srvStartPort,DEC);
+            if (srvStartPort == SERVICEBROADCASTPORT ) oled.print("(!)");
             oled.setCursor(0,1);
             oled.clearToEOL();
             oled.print("Server Found!");
