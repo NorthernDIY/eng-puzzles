@@ -30,41 +30,41 @@ SC = "SessionComplete"      #If this isn't 1, the file didn't get closed properl
 FNAME = "FName" #FileName of DB
 SQP = "SQLConn" #SQL 'Pipe'
 SQC = "SQLCursor" #SQL Cursor
-
 LHS = "LastHallPktStart"
 LAS = "LastAccelPktStart"
 LDT = "LastDataTime"
 
-SRV_THREAD = "Thread"
+SRV_THREAD = "Thread"        #Session Thread Handle
 
 #Some Debug Related things
-DBG_SS = KEY.STARTSESSION   #ESP Micros() time stamp of session start (For Debugging purposes)
-DBG_SE = KEY.ENDSESSION     #ESP Micros() time stamp of session start (For Debugging purposes)
-DBG_KPT = "KeptPacketTimes" #0 = No tables {"HPacketTimes", "APacketTimes"} 1 = tables present (For Debugging Purposes)
-DBG_HPT = "HTime"
-DBG_HPTS = "Start"
-DBG_HPTE = "End"
+TIME_SS = KEY.STARTSESSION   #ESP Micros() time stamp of session start (For Debugging purposes)
+TIME_SE = KEY.ENDSESSION     #ESP Micros() time stamp of session start (For Debugging purposes)
+TIME_STS = KEY.SENDSTS           #Recorded in metadata as this slightly increases MSGPACK payload size
+TIME_KPT = "KeptPacketTimes" #0 = No tables {"HPacketTimes", "APacketTimes"} 1 = tables present (For Debugging Purposes)
+TIME_HPT = "HTime"
+TIME_HPTS = "Start"
+TIME_HPTE = "End"
                 
-DBG_APT = "ATime"
-DBG_APTS = "Start"
-DBG_APTE = "End"
+TIME_APT = "ATime"
+TIME_APTS = "Start"
+TIME_APTE = "End"
 
-KPT_HTAGS = (DBG_HPT, DBG_HPTS, DBG_HPTE)
+KPT_HTAGS = (TIME_HPT, TIME_HPTS, TIME_HPTE)
 KPT_HTAGTYPES = ("INTEGER", "INTEGER", "INTEGER")
-KPT_ATAGS = (DBG_APT, DBG_APTS, DBG_APTE)
+KPT_ATAGS = (TIME_APT, TIME_APTS, TIME_APTE)
 KPT_ATAGTYPES = ("INTEGER", "INTEGER", "INTEGER")
 
 #Session MetaData
 SessionObject = {ID:-1, IP:"0.0.0.0",PT:7777, ST:-1, ET:-1, ABS:-1,
            AST:-1,HBS:-1, HST:-1, HMA:-1, HRT:-1, HZ:-1, NHS:-1, 
-           FWV:"N/A", BPC:0, SC:False, DBG_KPT:-1, DBG_SS:-1,
-           DBG_SE:-1, SQP:None, SQC:None, LHS:-1, LAS:-1,
+           FWV:"N/A", BPC:0, SC:False, TIME_STS: -1,TIME_KPT:-1, TIME_SS:-1,
+           TIME_SE:-1, SQP:None, SQC:None, LHS:-1, LAS:-1,
            LDT:-1, FNAME:None, SRV_THREAD:None}
 
 
 #SessionObjectTags: We skill the last 6 tags as they are not stored in the DB file
-DBSessionObjectTags = (ID,IP,PT,ST,ET,ABS,AST,HBS,HST,HMA,HRT,HZ,NHS,FWV,BPC,SC,DBG_KPT,DBG_SS,DBG_SE)
+DBSessionObjectTags = (ID,IP,PT,ST,ET,ABS,AST,HBS,HST,HMA,HRT,HZ,NHS,FWV,BPC,SC,TIME_STS,TIME_KPT,TIME_SS,TIME_SE)
 DBSessionObjectTagTypes = ("INTEGER","TEXT","INTEGER","TEXT","TEXT","INTEGER","INTEGER","INTEGER","INTEGER","INTEGER",
-                            "INTEGER","INTEGER","INTEGER","TEXT","INTEGER","INTEGER","INTEGER","INTEGER","INTEGER")
+                            "INTEGER","INTEGER","INTEGER","TEXT","INTEGER","INTEGER","INTEGER","INTEGER","INTEGER","INTEGER")
 
-SessionObjectTags = (ID,IP,PT,ST,ET,ABS,AST,HBS,HST,HMA,HRT,HZ,NHS,FWV,BPC,SC,DBG_KPT,DBG_SS,DBG_SE,SQP,SQC,SC,LHS,LAS,LDT, FNAME, SRV_THREAD)
+SessionObjectTags = (ID,IP,PT,ST,ET,ABS,AST,HBS,HST,HMA,HRT,HZ,NHS,FWV,BPC,SC,TIME_STS,TIME_KPT,TIME_SS,TIME_SE,SQP,SQC,SC,LHS,LAS,LDT, FNAME, SRV_THREAD)

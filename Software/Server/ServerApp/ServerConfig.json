@@ -1,1 +1,1 @@
-{"IP": "192.168.137.1", "Port": 1999, "bSize": 20000, "SID": 0}
+{"LastSessionID": 0, "BroadCastPort": 1998, "BroadcastInterval": 5, "InitiatorPort": 1999, "SessionPortMin": 12000, "SessionPortMax": 15000, "GetHallZ": 1, "GetSampleTimes": 1, "HallSamplePeriod": 10, "HallReportPeriod": 100, "HallMovingAverageSize": 20, "AccelSampleTime": 40, "KeepPacketTimes": 1, "DBRawDirectory": "RawDat/", "ReportDirectory": "Reports/", "SessionDBPrefix": "MZRaw_S", "SessionReportPrefix": "Report_S", "ResetAtRun": 1, "DisplayPacketRx": 0, "LocalIP": "127.0.0.2", "IncomingBufferSize": 10000}
