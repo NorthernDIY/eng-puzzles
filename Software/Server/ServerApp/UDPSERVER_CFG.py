@@ -48,6 +48,37 @@ K_DPR = "DisplayPacketRx"
 K_IP = "LocalIP"
 K_BUFS ="IncomingBufferSize"
 
+#Command line argument mapping stuff
+
+C_BCP = "-bp"
+C_BCI = "-bi"
+C_STP = "-sp"
+C_SPU = "-pmax"
+C_SPL = "-pmin"
+C_HST = "-hst"
+C_HRT = "-hrt"
+C_GST = "-gst"
+C_GHZ = "-ghz"
+C_HMA = "-hma"
+C_AST = "-ast"
+C_KPT = "-kpt"
+C_RAR = "-rar"
+C_DPR = "-dpr"
+C_IP = "-ip"
+CMD_ARGS = {C_BCP:K_BCP,C_BCI:K_BCI,C_STP:K_STP,C_SPU:K_SPU,C_SPU:K_SPL,
+            C_HST:K_HST,C_HRT:K_HRT,C_GST:K_GST,C_GHZ:K_GHZ,C_HMA:K_HMA,
+            C_AST:K_AST,C_KPT:K_KPT,C_RAR:K_RAR, C_DPR:K_DPR,C_IP:K_IP}
+CMD_ARGS_TYPES = {C_BCP:"INT",C_BCI:"INT",C_STP:"INT",C_SPU:"INT",C_SPU:"INT",
+            C_HST:"INT",C_HRT:"INT",C_GST:"INT",C_GHZ:"INT",C_HMA:"INT",
+            C_AST:"INT",C_AST:"INT",C_KPT:"INT",C_RAR:"INT", C_DPR:"INT",C_IP:"TEXT"}
+CMD_ARGS_UPDATEMESSAGES={C_BCP:"Service Broadcast Port", C_BCI:"Service Broadcast Interval",
+                         C_STP:"Session Initiator Port", C_SPU:"Max session Port", C_SPL:"Min Session Port",
+                         C_HST:"Hall Sample Period",C_AST:"Acclerometer Sample Period",
+                          C_HRT:"Hall Report Period", C_GST:"Send Sample Times",
+                         C_GHZ:"Send Hall Z Data", C_HMA:"Hall Moving Average Buffer Size", C_KPT:"Keep Packet Times",
+                         C_RAR:"Reset at Runtime", C_DPR:"Display Packet Rx", C_IP:"Server IP address to Bind"}
+
+
 _KEYS = [K_SID,K_BCP, K_BCI, K_STP, K_SPL, K_SPU, K_GHZ, K_GST, K_HST, K_HRT, K_HMA,
             K_AST, K_KPT, K_DBRD, K_REPD, K_SDPFX, K_SRPFX, K_RAR, K_DPR, K_IP, K_BUFS]
 

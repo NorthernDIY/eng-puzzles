@@ -1,6 +1,10 @@
 #!/bin/python3
 #Based off https://pythontic.com/modules/socket/udp-client-server-example
 
+#JULY 14 - Start Thread shutdown flag doesn't exist....but it does...just python things.
+#Also Emerich III
+
+
 import socket, sqlite3,os
 import AMazeThing_Keys as KEY
 import AMazeThingSessionFormat as MDK
@@ -12,6 +16,7 @@ from AMazeThingSessionFormat import DBSessionObjectTagTypes as metaTagTypes
 from AMazeThingSessionFormat import KPT_HTAGS, KPT_HTAGTYPES, KPT_ATAGS, KPT_ATAGTYPES
 from msgpack import loads as dec_msgpack
 from msgpack import dumps as enc_msgpack
+import sys,tty,os,termios
 from sys import argv as sysArgs
 from sys import exit as sysExit
 from datetime import datetime
@@ -64,9 +69,9 @@ timeToGo = False    #Set to True = shut things down and exit gracefully
 
 """
 Todo:	-(COMPLETE JULY 4/2022)     Fix missing RawDat directory error
-		-Detect current OS vs Last OS at startup and autoreset if different (Helpful for development)
-		-Watch Session ID of incoming packet and discard if not associated with IP (Basic anti-spoofing)
-		-Figure out how to close out sessions after some time of no activity --or- when next session started by same IP
+		-DONE - Watch Session ID of incoming packet and discard if not associated with IP (Basic anti-spoofing)
+		-close out sessions after some time of no activity
+        -DONE - close out sessions when next session started by same IP
 		-Netifaces get all interfaces, no joke stop skipping things randomly	
 """
 """
@@ -79,45 +84,101 @@ def getIFIPlist():#Works better on linux than other options...
     print(addresses, flush=True)
     return addresses
 """
+#Non blocking Linux/Windows/MacOSX key reading
+#Courtesy of https://stackoverflow.com/a/67939368
+def getkey():
+    old_settings = termios.tcgetattr(sys.stdin)
+    tty.setcbreak(sys.stdin.fileno())
+    try:
+        while True:
+            b = os.read(sys.stdin.fileno(), 3).decode()
+            if len(b) == 3:
+                k = ord(b[2])
+            else:
+                k = ord(b)
+            key_mapping = {
+                127: 'backspace',
+                10: 'return',
+                32: 'space',
+                9: 'tab',
+                27: 'esc',
+                65: 'up',
+                66: 'down',
+                67: 'right',
+                68: 'left',
+                113: 'q',
+                118: 'v',
+                81: 'Q',
+                86: 'V'
+            }
+            #print("key: %s\t int: %d"%(k,int(k)))
+            return key_mapping.get(k, chr(k))
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
-#handle keyboard input to properly shutdown program in windows.....
-#based on https://stackoverflow.com/a/57387909
+
+
+
 class KB_Watcher(threading.Thread):
 
     def __init__(self, input_cbk = None, name='KB Watch Thread'):
-        self.input_cbk = input_cbk
-        super(KB_Watcher, self).__init__(name=name)
+        threading.Thread.__init__(self)
         self.shutdown_flag = threading.Event()
+        self.notChatty = threading.Event()
 
     #def run(self):
     def run(self):
-        blankInputs = 0
-        print(VERSIONSTRING)
-        print("\tq <enter> to Quit")
-        print("\tv <enter> to Enable/Disable Incoming Packet Messages")
-        while (not self.shutdown_flag.is_set()):
+        global timeToGo, SVR_CFG
+        self.printOptions(False)
+        while (not self.shutdown_flag.is_set() and not timeToGo):
             try:
-                inputC = input() #waits to get input + Return
-                my_callback(inputC)
-            except EOFError:
-                blankInputs+=1
-        print("KB Watch Stopped")
+                k = getkey()
+                #inputC = input() #waits to get input + Return
+                if k=='q' or k == "Q":
+                    timeToGo = True
+                    print("Shutting down Server...Please wait.")
+                    self.notChatty.set()
+                if k=='v' or k == "V":
+                    if (not SVR_CFG[CFG.K_DPR]):
+                        print("Enabling packet Reciept Messages")
+                        SVR_CFG[CFG.K_DPR] = 1
+                    else:
+                        print("Disabling packet Reciept Messages")
+                        SVR_CFG[CFG.K_DPR] = 0
+                if k=='h' or k == "H":
+                    self.printOptions(True)
+            except KeyboardInterrupt:
+                timeToGo = True
+                self.notChatty.set()
+        if(not self.notChatty.is_set()):
+            print("KB Watch Stopped")
+    
+    def printOptions(self, clearScreen):
+        if (clearScreen):
+            os.system('cls' if os.name == 'nt' else 'clear')
+        print(VERSIONSTRING)
+        print("\tRunTime Options:")
+        print("\tq or Q = Quit")
+        print("\tv or V = Enable/Disable Incoming Packet Messages")
+        print("\th or H = clear screen and display available options (this message)")
 
+"""
 def my_callback(inp):
-    global timeToGo, DISP_PKT_RX
+    global timeToGo, SVR_CFG
     #evaluate the keyboard input
     if inp=='q' or inp == "Q":
         timeToGo = True
+        
         print("Shutting down Server...")
     if inp=='v' or inp == "V":
-        if (not DISP_PKT_RX):
+        if (not SVR_CFG[CFG.K_DPR]):
             print("Enabling packet Reciept Messages")
-            DISP_PKT_RX = True
+            SVR_CFG[CFG.K_DPR] = 1
         else:
             print("Disabling packet Reciept Messages")
-            DISP_PKT_RX = False
+            SVR_CFG[CFG.K_DPR] = 0
 #End of code from SOF
-
+"""
 
 class SERVER_NewSessionHandler(threading.Thread):
     def __init__(self):
@@ -128,11 +189,11 @@ class SERVER_NewSessionHandler(threading.Thread):
     
     def run(self):
         global SESSIONID,timeToGo,finishedSessions, usedPorts
-        time.sleep(2)
+        time.sleep(0.5)
         self.shutdown_flag = threading.Event()
-        print("Session Listener Started @ Port:",START_PORT," (",self.ident,")")
+        print("Session Listener Started @ Port:",SVR_CFG[CFG.K_STP]," (",self.ident,")")
         UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-        UDPServerSocket.bind((LOCALIP, START_PORT))
+        UDPServerSocket.bind((SVR_CFG[CFG.K_IP], SVR_CFG[CFG.K_STP]))
         UDPServerSocket.settimeout(1)
 
         while not self.shutdown_flag.is_set():
@@ -141,7 +202,7 @@ class SERVER_NewSessionHandler(threading.Thread):
                 havePacket = False
                 unpacked = None
                 try:
-                    bytesAddressPair = UDPServerSocket.recvfrom(BUFFERSIZE)
+                    bytesAddressPair = UDPServerSocket.recvfrom(SVR_CFG[CFG.K_BUFS])
                     #print("got packet")
                     havePacket = True
                 except:
@@ -234,8 +295,8 @@ class SERVER_SessionHandler(threading.Thread):
         sessionNum = mySession[MDK.ID]
         myIP = mySession[MDK.IP]
         myPort = mySession[MDK.PT]
-        address = (myIP,PORT)
-        addressStart = (myIP,START_PORT)
+        address = (myIP,myPort)
+        addressStart = (myIP,SVR_CFG[CFG.K_STP])
         myHZ = mySession[MDK.HZ]
         myAST = mySession[MDK.AST]
         myHST = mySession[MDK.HST]
@@ -244,7 +305,7 @@ class SERVER_SessionHandler(threading.Thread):
         mySTS = mySession[MDK.TIME_STS]
         
         UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-        UDPServerSocket.bind((LOCALIP, myPort)) 
+        UDPServerSocket.bind((SVR_CFG[CFG.K_IP], myPort)) 
         UDPServerSocket.settimeout(1)
         #Note: Should migrate from sending Global Variable Values to values set in session object
         print("New Session #%d started at %s by %s:%d"%(sessionNum,datetime.now(), address[0],address[1]),flush=True)
@@ -269,13 +330,13 @@ class SERVER_SessionHandler(threading.Thread):
             Todo:
             Confirm that session can be ended when orphan set.
             Confirm that packets arent lost if timeout occurs
-            Clean up exit signalling code
-            FIX IP SAVE IN METADATA
-            Re-integrate reset/command line arguments stuff
-            Expand saved parameters to include specific ports, session port ranges + extra settings
+            DONE - Clean up exit signalling code
+            DONE - FIX IP SAVE IN METADATA
+            DONE - Re-integrate reset/command line arguments stuff
+            DONE - Expand saved parameters to include specific ports, session port ranges + extra settings
             """
             try:
-                bytesAddressPair = UDPServerSocket.recvfrom(BUFFERSIZE)
+                bytesAddressPair = UDPServerSocket.recvfrom(SVR_CFG[CFG.K_BUFS])
                 havePacket = True
             except:
                 havePacket = False
@@ -289,27 +350,27 @@ class SERVER_SessionHandler(threading.Thread):
                 mType = getMsgType(unpacked)
                 
                 if ((mType==msgType.HALL)):
-                    if (GET_SAMPLETIMES):
+                    if (SVR_CFG[CFG.K_GST]):
                         elapsed = unpacked[KEY.REALSTOP] - unpacked[KEY.REALSTART]
                         Hdiff = unpacked[KEY.REALSTART]- mySession[MDK.LHS]
                         
                     InsertHallData(unpacked, mySession)
                     if DISP_PKT_RX:
                             message = "H Data Rx'd (%d Bytes)"%Packet.__sizeof__()
-                            message+= "    ST=%d    ET=%d    Elapsed=%d" %(unpacked[KEY.REALSTART], unpacked[KEY.REALSTOP], elapsed) if GET_SAMPLETIMES else ''
+                            message+= "    ST=%d    ET=%d    Elapsed=%d" %(unpacked[KEY.REALSTART], unpacked[KEY.REALSTOP], elapsed) if SVR_CFG[CFG.K_GST] else ''
                             message+= "    (Start Delta=%d)"%Hdiff if mySession[MDK.LHS]>=0 else ""
                             print(message, flush = True)
                     mySession[MDK.LHS] = unpacked[KEY.REALSTART]
         
                 elif ((mType==msgType.ACCEL)):
-                    if (GET_SAMPLETIMES):
+                    if (SVR_CFG[CFG.K_GST]):
                         elapsed = unpacked[KEY.REALSTOP] - unpacked[KEY.REALSTART]
                         Adiff = unpacked[KEY.REALSTART]-mySession[MDK.LAS]
                 
                     InsertAccelData(unpacked, mySession)
                     if DISP_PKT_RX:
                         message = "A Data Rx'd (%d Bytes)"%Packet.__sizeof__()
-                        message+= "    ST=%d    ET=%d    Elapsed=%d" %(unpacked[KEY.REALSTART], unpacked[KEY.REALSTOP], elapsed) if GET_SAMPLETIMES else ''
+                        message+= "    ST=%d    ET=%d    Elapsed=%d" %(unpacked[KEY.REALSTART], unpacked[KEY.REALSTOP], elapsed) if SVR_CFG[CFG.K_GST] else ''
                         message+= "    (Start Delta=%d)"%Adiff if mySession[MDK.LAS]>=0 else ""
                         print(message, flush = True)
                     
@@ -350,31 +411,43 @@ class ServiceBroadcaster(threading.Thread):
         self.shutdown_flag = threading.Event()
     
     def run(self):
-        ServiceDictionary = {"SVC":SERVICETXT,"VER":VERSIONNUM,"PORT":START_PORT}
+        ServiceDictionary = {"SVC":SERVICETXT,"VER":VERSIONNUM,"PORT":SVR_CFG[CFG.K_STP]}
         ServiceMessage = enc_msgpack(ServiceDictionary,use_single_float=True,strict_types=True)
-        interfaces = {"127.0.0.2", LOCALIP}#localhost, .2 since windows prohibits .1
+        interfaces = {"127.0.0.2", SVR_CFG[CFG.K_IP]}#localhost, .2 since windows prohibits .1
         while not self.shutdown_flag.is_set():
             for ip in interfaces:
                 UDPBROADCASTSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
                 UDPBROADCASTSocket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 UDPBROADCASTSocket.bind((ip,0))
-                UDPBROADCASTSocket.sendto(ServiceMessage,("255.255.255.255", BCAST_PORT))
+                UDPBROADCASTSocket.sendto(ServiceMessage,("255.255.255.255", SVR_CFG[CFG.K_BCP]))
                 UDPBROADCASTSocket.close()
-            time.sleep(BCAST_INT)
+            time.sleep(SVR_CFG[CFG.K_BCI])
 
 ############################################
 
 def sigTerm_Handler(_signo, _stack_frame):
+    global timeToGo
+    if (_signo == 2):
+        print("\nKeyboard Interrupt - ", end ="", flush =True)
+    print("Signal Caught! Shutting down '" +VERSIONSTRING + "' now.")
     if BCAST_THREAD != None:
+        print("Stopping Broadcast Service...", end = "")
         BCAST_THREAD.shutdown_flag.set()
         BCAST_THREAD.join()
+        print("Done!")
     if START_THREAD != None:
+        print("Stopping Initiator Service...", end = "")
         START_THREAD.shutdown_flag.set()
         START_THREAD.join()
+        print("Done!")
     if KB_THREAD != None:
+        print("Stopping KB Monitor...(Please press return on KB)", end = "", flush=True)
+        KB_THREAD.notChatty.set()
         KB_THREAD.shutdown_flag.set()
         KB_THREAD.join()
-    print("SigTerm Exit Handled Gracefully")
+        print("Done!")
+    timeToGo = True
+    print("SigTerm Exit Handled Gracefully", flush=True)
     
 class msgType(Enum):
     JUNK= 0
@@ -388,9 +461,9 @@ class msgType(Enum):
 
 def pickRandomPort():
     global usedPorts
-    aPort = random.randint(PORTMIN, PORTMAX)
+    aPort = random.randint(SVR_CFG[CFG.K_SPL], SVR_CFG[CFG.K_SPU])
     while(isPortUsed(aPort)):
-        aPort = random.randint(PORTMIN, PORTMAX)
+        aPort = random.randint(SVR_CFG[CFG.K_SPL], SVR_CFG[CFG.K_SPU])
         #print("Next RND Port")
     #print(usedPorts)
     return aPort
@@ -447,11 +520,11 @@ def LoadSettings(quiet):
     if os.path.exists(CFG_FNAME):
         with open(CFG_FNAME) as json_file:
             SVR_CFG = json.load(json_file)
-        print("Last Session # loaded from file: %d" %SVR_CFG[CFG.K_SID])   
     else:
         print("No Settings file found, using defaults")
     if not quiet:
         print("(Settings Loaded)")
+        print("Last Session # loaded from file: %d" %SVR_CFG[CFG.K_SID])   
 
 def newSQLdb(mySession): #Setup the session specific DB
     global sqlConn, cursor
@@ -523,7 +596,7 @@ def endSession(mySession, offlineClose):
     sqlConn = mySession[MDK.SQP]
     lastSESSIONID = mySession[MDK.ID]
     mySession[MDK.SC] = 1
-    mySession[MDK.TIME_KPT] = KEEP_PKT_TIMES
+    mySession[MDK.TIME_KPT] = SVR_CFG[CFG.K_KPT]
     if offlineClose:
         print("Orphaned: Using last Data RX'd as Session End Time")
         mySession[MDK.ET] = mySession[MDK.LDT]
@@ -642,19 +715,6 @@ def InsertAccelData(messageData, mySession):
         i+=1
         sqlConn.commit()
 
-"""def shutdownServer():
-    global sqlConn, cursor, Sessions
-    SaveSettings() #Store last SESSIONID
-    for session in Sessions:
-        if (session[MDK.SQP]!=None):#If its a string then no sql db is open
-            print("Session #%d not closed correctly! (Closing SQL DB now...)"%session[MDK.ID])
-            endSession(session,True)#Perform offline close
-            #session[MDK.SQP].close();
-            print("\tTotal Bad Packets recieved: %d" %session[MDK.BPC])
-    print("Last Active Session: %d"%SESSIONID)
-    print("Good Bye")
-    sysExit()"""
-
 def clearSettingsAndFiles(quiet):
     global SVR_CFG
     if os.path.exists(CFG_FNAME):
@@ -704,70 +764,66 @@ def clearDir(directory, fType):
     Main Program Starts here 
 """
 def main():
-    global SVR_CFG
-        
+    global SVR_CFG, KB_THREAD, START_THREAD,BCAST_THREAD
+    LoadSettings(False)
+    
     if SVR_CFG[CFG.K_RAR]:
         clearSettingsAndFiles(True)
 
-    LoadSettings(False)
-    
     args = sysArgs
     alen = len(args)
+    print(alen)
     message = ""
     if alen>=2:
         try:
-            print(args)
             if args[1]=="--reset":
-                    if not SVR_CFG[CFG.K_RAR]:
-                        clearSettingsAndFiles(True)
-                        exit()
+                if not SVR_CFG[CFG.K_RAR]:
+                    clearSettingsAndFiles(True)
+                    exit()
             message = "The following settings were updated: "
             for item in range(1,alen,2):
-                if args[item] == "-ip":
-                    SVR_CFG[CFG.K_IP] = args[item +1]
-                    message+="\n\tIP Address of Server"
-                if args[item] == "-sp":
-                    SVR_CFG[CFG.K_STP] = int(args[item +1])
-                    message+="\n\tSession Initiator Port"
-                if args[item] == "-bp":
-                    SVR_CFG[CFG.K_BCP] = int(args[item +1])
-                    message+="\n\tService Broadcast Port"
-                if args[item] == "-bi":
-                    SVR_CFG[CFG.K_BCI] = int(args[item +1])
-                    message+="\n\tService Broadcast Interval"
-                if args[item] == "-pmax":
-                    SVR_CFG[CFG.K_SPU] = int(args[item +1])
-                    message+="\n\tSession Maximum Port Number"
-                if args[item] == "-pmin":
-                    SVR_CFG[CFG.K_SPL] = int(args[item +1])
-                    message+="\n\tSession Minimum Port Number"
+                key = args[item]
+                val = args[item +1]
+                if key in CFG.CMD_ARGS:
+                    if CFG.CMD_ARGS_TYPES[key] == "INT":
+                        SVR_CFG[CFG.CMD_ARGS[key]] = int(val)
+                    else: #its a string
+                        SVR_CFG[CFG.CMD_ARGS[key]] = val
+                    message+= "\n\t"+CFG.CMD_ARGS_UPDATEMESSAGES[key]
+                    message += ": "+ str(val)
 #END OF DAY JULY 13, STILL WORKING ON CONFIG FILE PARAMETERS AND COMMAND LINE ARGUMENTS
-        except:
+        except Exception as e:
+
             print("Invalid arguments specified, check input and try again!")
+            print(type(e).__name__)
+            print(e.args)
             sysExit()
             
         print(message)
         SaveSettings(True)
-    sysExit()
-        
     KB_THREAD = KB_Watcher()
     START_THREAD = SERVER_NewSessionHandler()
     BCAST_THREAD = ServiceBroadcaster()
     
-    KB_THREAD.daemon = True
+    #KB_THREAD.daemon = True
     #START_THREAD.daemon = True
     #BCAST_THREAD.daemon = True
-    KB_THREAD.start()
+    
     START_THREAD.start()
     BCAST_THREAD.start()
+    KB_THREAD.start()
     
+    signal.signal(signal.SIGTERM, sigTerm_Handler)
+    signal.signal(signal.SIGINT, sigTerm_Handler)
+
     while(not timeToGo):
         time.sleep(0.5)
     START_THREAD.shutdown_flag.set()
     BCAST_THREAD.shutdown_flag.set()
     KB_THREAD.shutdown_flag.set()
+    SaveSettings(True) #Always want to save the last session number used
+    os.system('stty sane') #Restore terminal echo!
     sysExit() 
     
 if __name__ == "__main__":
     main()
-    
