@@ -20,7 +20,7 @@ DEF_SESSIONID = 0           #Session ID, No reason to start at anything but 0 -O
 DEF_DISP_PKT_RX = 0         #1 = Print a message whenever a packet has been recieved, includes size of message in bytes
 DEF_BUFFERSIZE  = 10000     #Maximum UDP packet size (ESP32 doesn't send anything larget than 1500 bytes so this is way overkill
 
-DEF_RESET_AT_RUN = 1        #Clear all DB Files and Reports and Reset to defaults every Run (DEBUG USE)
+DEF_RESET_AT_RUN = 0        #Clear all DB Files and Reports and Reset to defaults every Run (DEBUG USE)
 
 #DBG_DEFIP = "192.168.137.1" #Default IP when RESET_AT_RUN is enabled
 #DBG_DEFIP = "10.42.0.1"

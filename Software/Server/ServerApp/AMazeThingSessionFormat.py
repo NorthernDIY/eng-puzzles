@@ -63,7 +63,26 @@ SessionObject = {ID:-1, IP:"0.0.0.0",PT:7777, ST:-1, ET:-1, ABS:-1,
 
 
 #SessionObjectTags: We skill the last 6 tags as they are not stored in the DB file
-DBSessionObjectTags = (ID,IP,PT,ST,ET,ABS,AST,HBS,HST,HMA,HRT,HZ,NHS,FWV,BPC,SC,TIME_STS,TIME_KPT,TIME_SS,TIME_SE)
+DBSessionObjectTags = (ID,
+                       IP,
+                       PT,
+                       ST,
+                       ET,
+                       ABS,
+                       AST,
+                       HBS,
+                       HST,
+                       HMA,
+                       HRT,
+                       HZ,
+                       NHS,
+                       FWV,
+                       BPC,
+                       SC,
+                       TIME_STS,
+                       TIME_KPT,
+                       TIME_SS,
+                       TIME_SE)
 DBSessionObjectTagTypes = ("INTEGER","TEXT","INTEGER","TEXT","TEXT","INTEGER","INTEGER","INTEGER","INTEGER","INTEGER",
                             "INTEGER","INTEGER","INTEGER","TEXT","INTEGER","INTEGER","INTEGER","INTEGER","INTEGER","INTEGER")
 

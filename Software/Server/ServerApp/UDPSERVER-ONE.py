@@ -355,7 +355,7 @@ class SERVER_SessionHandler(threading.Thread):
                         Hdiff = unpacked[KEY.REALSTART]- mySession[MDK.LHS]
                         
                     InsertHallData(unpacked, mySession)
-                    if DISP_PKT_RX:
+                    if SVR_CFG[CFG.K_DPR] == 1:
                             message = "H Data Rx'd (%d Bytes)"%Packet.__sizeof__()
                             message+= "    ST=%d    ET=%d    Elapsed=%d" %(unpacked[KEY.REALSTART], unpacked[KEY.REALSTOP], elapsed) if SVR_CFG[CFG.K_GST] else ''
                             message+= "    (Start Delta=%d)"%Hdiff if mySession[MDK.LHS]>=0 else ""
@@ -368,7 +368,7 @@ class SERVER_SessionHandler(threading.Thread):
                         Adiff = unpacked[KEY.REALSTART]-mySession[MDK.LAS]
                 
                     InsertAccelData(unpacked, mySession)
-                    if DISP_PKT_RX:
+                    if SVR_CFG[CFG.K_DPR] == 1:
                         message = "A Data Rx'd (%d Bytes)"%Packet.__sizeof__()
                         message+= "    ST=%d    ET=%d    Elapsed=%d" %(unpacked[KEY.REALSTART], unpacked[KEY.REALSTOP], elapsed) if SVR_CFG[CFG.K_GST] else ''
                         message+= "    (Start Delta=%d)"%Adiff if mySession[MDK.LAS]>=0 else ""
@@ -378,7 +378,7 @@ class SERVER_SessionHandler(threading.Thread):
                     
                 elif ((mType==msgType.CAL_HALL)):
                     InsertHallCal(unpacked, mySession)
-                    if DISP_PKT_RX:
+                    if SVR_CFG[CFG.K_DPR] == 1:
                         print("Cal Data Rx'd (%d Bytes)"%Packet.__sizeof__())
                 elif ((mType==msgType.END)):
                     mySession[MDK.TIME_SE] = unpacked[KEY.ENDSESSION]
@@ -389,7 +389,7 @@ class SERVER_SessionHandler(threading.Thread):
                     
                     self.shutdown_flag.set()
                 else:
-                    if DISP_PKT_RX:
+                    if SVR_CFG[CFG.K_DPR] == 1:
                         print("Bad Packet Rx'd from: %s" %address[0])
                         print(Packet)
                         print(unpacked)
@@ -412,6 +412,8 @@ class ServiceBroadcaster(threading.Thread):
     
     def run(self):
         ServiceDictionary = {"SVC":SERVICETXT,"VER":VERSIONNUM,"PORT":SVR_CFG[CFG.K_STP]}
+        print("Broadcast Thread started on port:", SVR_CFG[CFG.K_BCP])
+        print(ServiceDictionary, flush=True)
         ServiceMessage = enc_msgpack(ServiceDictionary,use_single_float=True,strict_types=True)
         interfaces = {"127.0.0.2", SVR_CFG[CFG.K_IP]}#localhost, .2 since windows prohibits .1
         while not self.shutdown_flag.is_set():
@@ -544,7 +546,7 @@ def newSQLdb(mySession): #Setup the session specific DB
             createMetaDataTable +=", "
         createMetaDataTable += metaTags[tagPos] + " " + metaTagTypes[tagPos]
     createMetaDataTable += ");"
-    
+    #print(createMetaDataTable)
     #Create Table for Hall Data, Also create the Sensor Noise Tables and BIOSAVART RT Constant tables        
     createHallTable = "CREATE Table Hall(time INTEGER"
     for i in range(0,NumHallSensors):
@@ -613,8 +615,7 @@ def endSession(mySession, offlineClose):
         sqlCmdp1 += metaTags[tagPos]
         if metaTagTypes[tagPos] == "TEXT":
             sqlData+="'"
-        else:
-            sqlData += str(mySession[metaTags[tagPos]])
+        sqlData += str(mySession[metaTags[tagPos]])
         
         if metaTagTypes[tagPos] == "TEXT":
             sqlData+="'"
@@ -722,18 +723,17 @@ def clearSettingsAndFiles(quiet):
             print("RESET\tDeleting old CFG file (%s)" %CFG_FNAME)
         os.remove(CFG_FNAME)
     
-    #Since we start with a copy of the default settings, nothing to set here, just save these defaults
-    #SVR_CFG = CFG._DEFAULTS
+    SVR_CFG = CFG._DEFAULTS.copy()
     
     SaveSettings(True)
     
-    rawdirectory = os.getcwd() + SVR_CFG[CFG.K_DBRD]
+    rawdirectory = os.getcwd() + "/" + SVR_CFG[CFG.K_DBRD]
     rawDirOk = checkOrMakeDir(rawdirectory)
     if rawDirOk:
         print("Raw DB Directory present, clearing now.")
         clearDir(rawdirectory, ".db")
     
-    reportdirectory = os.getcwd() + SVR_CFG[CFG.K_REPD]
+    reportdirectory = os.getcwd() + "/" +SVR_CFG[CFG.K_REPD]
     repDirOk = checkOrMakeDir(rawdirectory)
     
     if repDirOk:
@@ -754,6 +754,7 @@ def checkOrMakeDir(directory):
     return dirOk
 
 def clearDir(directory, fType):
+    print("clearing ", directory, " of ", fType, " files!")
     dbFileDirHandle = os.listdir( directory )
     for item in dbFileDirHandle:
         if item.endswith(fType):
@@ -767,18 +768,21 @@ def main():
     global SVR_CFG, KB_THREAD, START_THREAD,BCAST_THREAD
     LoadSettings(False)
     
-    if SVR_CFG[CFG.K_RAR]:
-        clearSettingsAndFiles(True)
-
     args = sysArgs
     alen = len(args)
-    print(alen)
+    #print(alen)
     message = ""
     if alen>=2:
         try:
-            if args[1]=="--reset":
+            if args[1]=="-reset":
                 if not SVR_CFG[CFG.K_RAR]:
+                    print("r1")
                     clearSettingsAndFiles(True)
+                    
+                    exit()
+                else:
+                    print("r2")
+                    clearSettingsAndFiles(False)
                     exit()
             message = "The following settings were updated: "
             for item in range(1,alen,2):
