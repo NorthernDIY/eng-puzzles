@@ -34,7 +34,7 @@ SVR_CFG = _DEFAULTS.copy()
 
 
 #Server Properties
-VERSIONNUM = 0.85
+VERSIONNUM = 89
 VERSIONSTRING = "AMazeThing UDP Server    (v" + str(VERSIONNUM) + ")"
 
 ##########################

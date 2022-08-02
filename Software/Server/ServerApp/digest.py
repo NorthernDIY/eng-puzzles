@@ -238,6 +238,8 @@ def CheckHallContinuity():
             print("All good!\n")
     return (not atLeastOneMissing)
 
+#Generates Baseline Noise List for all senosors in maze.  First 2 columns have average of remaining columns applied
+#Note that this can cause issues when 
 def CalculateBaseLineNoise():
     global HallBaseLineNoise
     
@@ -293,7 +295,7 @@ def CalculatePosition(timeStep):
     cursor = mySession[MDK.SQC]
     sqlConn = mySession[MDK.SQP]
     #print("Calculating position at session time %d" %timeStep)
-    weight=zeros((1,len(MazeCoordinates)))
+    weight=zeros((1,len(MazeCoordinates))) #numpy array
     #funcTimeStart = time.time()
     sqlCreatePositionResultQuery = "CREATE TABLE IF NOT EXISTS MZPos(Time INTEGER,X_POS DECIMAL,Y_POS DECIMAL ,MZ_POINTINDEX INTEGER ,MZ_VERSION DECIMAL)"
     cursor.execute(sqlCreatePositionResultQuery)
@@ -385,7 +387,7 @@ print("AMazeThing Session Digestion Application")
 print("Version: %s"%VERSIONSTRING)
 FileName = GetArguments()
 Opened = OpenDB(FileName)
-plt.rcParams["figure.figsize"] = 12, 8
+plt.rcParams["figure.figsize"] = 6, 4
 plt.rcParams["figure.autolayout"] = True
 img = plt.imread("MazeBWG.png")
 fig, ax = plt.subplots()

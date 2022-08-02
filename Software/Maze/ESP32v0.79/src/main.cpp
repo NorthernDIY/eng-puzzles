@@ -32,7 +32,7 @@
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
 
-#define VERSIONSTRING "v0.85" //Firmware Version String
+#define VERSIONSTRING "v0.89" //Firmware Version String
 //WiFi credentials
 #define G15_SSID "AMazeThing"
 #define G15_PASSWORD "hn7P8Egh"
@@ -43,8 +43,8 @@
 #define HOME_SWITCH_ACTIVATION_TIME 300 //Time to wait after inital switch open before starting a new session (Part of debounce)
 #define SPINNERTASKDELAY 500 //Time between spins for the user feedback spinner task
 
-#define DBGSERIAL 0 //Output various information over serial  (Used during parameter tuning)
-#define INITSERIAL 0
+#define DBGSERIAL 1 //Output various information over serial  (Used during parameter tuning)
+#define INITSERIAL 1
 //Hall Sensor Matrix Properties
 //#define HALLAVERAGINGSAMPLES 20 //Number of samples in moving average
 #define HALLAVERAGINGSAMPLES_MAX 60  //Max size of moving averange ring buffer
@@ -69,7 +69,7 @@ uint16_t ACCELSAMPPERIOD = 40;
 #define CAM_KEY 0x2C413534 //ALS31300 Sensors
 
 //Server Properties to look for (and what port to listen for service broadcast
-#define MINSERVERVER 0.79
+#define MINSERVERVER 89
 #define SERVICEREQUIRED "MAZE_SERVER"
 #define SERVICEBROADCASTPORT 1998
 //Keys used in service broadcast message
@@ -84,12 +84,16 @@ uint16_t ACCELSAMPPERIOD = 40;
 #define KEY_ENDSESSION "Bye"//Sent to server to close session
 #define KEY_STARTSESSION "Hey"//Sent to server to start a new session
 #define KEY_FWVER "FWV"
-#define KEY_BIOSAVX "BSX"//Run time calibration constant sent at start of session
-#define KEY_BIOSAVY "BSY"//Run time calibration constant sent at start of session
-#define KEY_BIOSAVZ "BSZ"//Run time calibration constant sent at start of session
-#define KEY_HCALX "H_CAL_X"//Run time baseline noise data sent at start of session
-#define KEY_HCALY "H_CAL_Y"//Run time baseline noise data sent at start of session
-#define KEY_HCALZ "H_CAL_Z"//Run time baseline noise data sent at start of session
+#define KEY_BIOSAV "B"//Run time calibration constant sent at start of session
+//#define KEY_BIOSAVX "BSX"//Run time calibration constant sent at start of session
+//#define KEY_BIOSAVY "BSY"//Run time calibration constant sent at start of session
+//#define KEY_BIOSAVZ "BSZ"//Run time calibration constant sent at start of session
+//#define KEY_HCALX "H_CAL_X"//Run time baseline noise data sent at start of session
+//#define KEY_HCALY "H_CAL_Y"//Run time baseline noise data sent at start of session
+//#define KEY_HCALZ "H_CAL_Z"//Run time baseline noise data sent at start of session
+#define KEY_HNOISE0 "N0" //Run time baseline bias data set at start of session
+#define KEY_HNOISE1 "N1" //Run time baseline bias data set at start of session
+#define KEY_HNOISE2 "N2" //Run time baseline bias data set at start of session
 #define KEY_SRVCHECK "CHK"//Periodic message sent with this queries server to ensure its still active
 #define KEY_SRVOK "OK"//Response from server expected from SRVCHECK
 #define KEY_SESSIONID "ID"//This key is the session id
@@ -158,6 +162,31 @@ typedef struct{
   uint8_t sampIndex;
 } MASensor;
 MASensor sensors[NUMSENSORS];
+
+typedef struct{
+  //Store 3 * {x,y,z} data for BSC calculation
+  int16_t BxCal[3];
+  int16_t ByCal[3];
+  int16_t BzCal[3];
+  //Store 3 * {Sensor#{x,y,z}} Bias data for vector calculation on server end.
+  int16_t Hx0Bias[NUMSENSORS];
+  int16_t Hy0Bias[NUMSENSORS];
+  int16_t Hz0Bias[NUMSENSORS];
+  int16_t Hx1Bias[NUMSENSORS];
+  int16_t Hy1Bias[NUMSENSORS];
+  int16_t Hz1Bias[NUMSENSORS];
+  int16_t Hx2Bias[NUMSENSORS];
+  int16_t Hy2Bias[NUMSENSORS];
+  int16_t Hz2Bias[NUMSENSORS];
+
+  //Struct Size is 450 Bytes, cheaper to store and regenerate MSGPACK as needed
+  //MSGPACK BSCData <45 Bytes
+  //MSGPACK HBiasData 500 to 700 Bytes
+} HCalData;
+
+HCalData HallCalibrationData;
+
+
 
 enum SpinTaskStates{
   spin_H=0,
@@ -282,6 +311,7 @@ void IRAM_ATTR loop();
 //Calibration Related
 void sendCalData();
 void hallSensorZeroCal();
+void calibrateHallSensors();
 
 //Communications Related
 void beginSession();
@@ -392,17 +422,20 @@ void setup()
   //accel.setSensitivity();
   
   delay(1000);
-  hallSensorZeroCal();
+  //hallSensorZeroCal();
+  calibrateHallSensors();
   delay(1000); 
   bool server_found = findServer(true);//This never returns unless a service announce has been heard.
   
   if (DBGSERIAL)Serial.println("AMazeThing...\nReady state starts in 1 Sec");
   delay(1000);
   oled.setContrast(31);
+  
   CheckReady();
 }
 
 void CheckReady(){
+  Serial.println("CheckReady");
   bool wifiOK = (WiFi.status() == WL_CONNECTED);
   CheckServerAlive(true,true);
   
@@ -558,7 +591,7 @@ void IRAM_ATTR beginSession(){
     return;
   } 
   active = true;//state variable that controls sample/report tasks below
-  sendCalData();//This could change if for example, maze is moved after powerup
+  sendCalData();//Send the calibration data from startup to the server
   
   uint32_t tTime = 0;
   TaskHandle_t * SampleA_Task_Handle;
@@ -618,42 +651,42 @@ void endSession(){
 void sendCalData(){
   uint32_t sTimer = millis();
   int count = 0;
-  //Scan the Hall Matrix HALLAVERAGINGSAMPLES times, every HALLSAMPPERIOD milliseconds
-  //Basically prefill the moving average.
-  while(count<HALLAVERAGINGSAMPLES){
-    if ((millis()-sTimer) >=10){//Sensors can be scanned every 4 ms, so this is fine to be 10ms
-      sTimer = millis();
-      scanHallMatrix();
-      count++;
-    }     
-   }
-  StaticJsonDocument <1500>calDoc;
+  
+  //This is a HUGE json doc :/
+  StaticJsonDocument <4096>calDoc;
+  JsonArray N0 = calDoc.createNestedArray(KEY_HNOISE0);
+  JsonArray N1 = calDoc.createNestedArray(KEY_HNOISE1);
+  JsonArray N2 = calDoc.createNestedArray(KEY_HNOISE2);
+  JsonArray BSD = calDoc.createNestedArray(KEY_BIOSAV);
+
   calDoc[KEY_SESSIONID] = mySession;
-  calDoc[KEY_BIOSAVX] = BiotSavartCalConstantX;
-  calDoc[KEY_BIOSAVY] = BiotSavartCalConstantY;
-  if (sendHZ) calDoc[KEY_BIOSAVZ] = BiotSavartCalConstantZ;
+  
+  for (int i = 0;i<NUMSENSORS;i++){
+    N0.add(HallCalibrationData.Hx0Bias[i]);
+    N1.add(HallCalibrationData.Hx1Bias[i]);
+    if (sendHZ) N2.add(HallCalibrationData.Hx2Bias[i]);
+    
+    N0.add(HallCalibrationData.Hy0Bias[i]);
+    N1.add(HallCalibrationData.Hy1Bias[i]);
+    if (sendHZ) N2.add(HallCalibrationData.Hy2Bias[i]);
 
-  JsonArray calX = calDoc.createNestedArray(KEY_HCALX);
-  JsonArray calY = calDoc.createNestedArray(KEY_HCALY);
-  JsonArray calZ = calDoc.createNestedArray(KEY_HCALZ);
+    N0.add(HallCalibrationData.Hz0Bias[i]);
+    N1.add(HallCalibrationData.Hz1Bias[i]);
+    if (sendHZ) N2.add(HallCalibrationData.Hz2Bias[i]);
+  }
+  for(int i = 0; i<3;i++){
+    BSD.add(HallCalibrationData.BxCal[i]);
+    BSD.add(HallCalibrationData.ByCal[i]);
+    if (sendHZ) BSD.add(HallCalibrationData.BzCal[i]);
+  }
+  
+  uint8_t CalMsgPack[750];
 
-  for (int index = 0; index<NUMSENSORS;index++){
-      calX.add(sensors[index].avgX);
-      calY.add(sensors[index].avgY);
-      if (sendHZ)calZ.add(sensors[index].avgZ);
-  }
-  int jsize = 0;
-  if(DBGSERIAL){
-    jsize = calDoc.memoryUsage();
-    Serial.print("calDoc Mem Usage: ");
-    Serial.println(jsize,DEC);
-  }
-  uint8_t msgPackBuffer[MSGBUFFERSIZE];
-  uint16_t bufLen = serializeMsgPack(calDoc,msgPackBuffer);
+  uint16_t bufLen = serializeMsgPack(calDoc,CalMsgPack);
   if (DBGSERIAL)Serial.print("calDoc msgpak size: ");
   if (DBGSERIAL)Serial.println(bufLen);
   wifiUDPclient.beginPacket(srvAddress,sessionPort);
-  wifiUDPclient.write(msgPackBuffer,bufLen);
+  wifiUDPclient.write(CalMsgPack,bufLen);
   wifiUDPclient.endPacket();
   calDoc.clear();
 }
@@ -1156,6 +1189,7 @@ void newSessionConnect(){
 }
 
 bool findServer(bool updateDisplay){
+  Serial.println("ServerSearch");
   bool serverFound = false;
   if (updateDisplay){
     oled.set1X();
@@ -1188,7 +1222,9 @@ bool findServer(bool updateDisplay){
         String serviceTag = findServerDoc[KEY_SERVICETYPE];
         serviceMatch = (serviceTag==SERVICEREQUIRED);
         if (serviceMatch){
-          float verTag = findServerDoc[KEY_SERVICEVER];
+          //Int because sometimes sending 0.89 results in 0.8899999857 instead...
+          int verTag = findServerDoc[KEY_SERVICEVER];
+          Serial.println(verTag,DEC);
           versionMatch = (verTag>=MINSERVERVER);
           srvStartPort = findServerDoc[KEY_STARTPORT];
           srvAddress=wifiUDPclient.remoteIP();
@@ -1217,6 +1253,93 @@ bool findServer(bool updateDisplay){
     }
   }
   return serverFound;
+}
+void waitStylusInvert(){
+  while(accel.getRawZ()>=-15000);
+}
+
+void calibrateHallSensors(){
+  oled.clear();
+  oled.set2X();
+  oled.println("H. Sensor\nCalibration");
+  oled.set1X();
+  oled.println("Lift & Invert Stylus\nClose Home with finger");
+  waitStylusInvert();
+  waitStylusHome(false);
+  delay(HOME_SWITCH_ACTIVATION_TIME);
+  oled.clear();
+  oled.set2X();
+  oled.println("HOLD STEADY");
+ 
+  int hNCount = 0;
+  
+  while(hNCount<3){
+    Serial.println(hNCount,DEC);
+    uint32_t cTime = millis();
+    uint32_t sTime = 0;
+    int count = 0;
+    while(count<HALLAVERAGINGSAMPLES_MAX){
+      cTime = millis();
+      if((cTime - sTime)>=6){//Full scan takes about 5ms.
+        scanHallMatrix();
+        sTime=cTime;
+        count++;
+      }
+    }
+    //Now fill the Calibration Struct with data
+    for (int i = 0; i<NUMSENSORS; i++){
+      switch (hNCount){
+        case 0:
+          HallCalibrationData.Hx0Bias[i] = sensors[i].avgX;
+          HallCalibrationData.Hy0Bias[i] = sensors[i].avgY;
+          HallCalibrationData.Hz0Bias[i] = sensors[i].avgZ;
+        break;
+        case 1:
+          HallCalibrationData.Hx1Bias[i] = sensors[i].avgX;
+          HallCalibrationData.Hy1Bias[i] = sensors[i].avgY;
+          HallCalibrationData.Hz1Bias[i] = sensors[i].avgZ;
+        break;
+        case 2:
+          HallCalibrationData.Hx2Bias[i] = sensors[i].avgX;
+          HallCalibrationData.Hy2Bias[i] = sensors[i].avgY;
+          HallCalibrationData.Hz2Bias[i] = sensors[i].avgZ;
+        break;
+      }
+  
+    }
+    hNCount++;
+  }
+  oled.clear();
+  oled.set2X();
+  oled.print("Release\n  Home");
+  while(digitalRead(REED_SWITCH));
+  oled.clear();
+  oled.set2X();
+  oled.println("Home Stylus");
+  
+  waitStylusHome(true);
+  delay(HOME_SWITCH_ACTIVATION_TIME);;
+  int hBCount = 0;
+  
+  //Generate the magnetic field vector when magnet is at known position
+  while (hBCount<3){
+    int count = 0;
+    uint32_t sTime = millis();
+    uint32_t cTime=0;
+    while(count<HALLAVERAGINGSAMPLES_MAX){
+      cTime = millis();  
+      if((cTime - sTime)>=4){//We can read this faster than 5ms since it's only one sensor.
+        sTime = cTime;
+        readALS31300ADC(calSensorIndexLocation);
+        count++;
+      }
+    }
+    HallCalibrationData.BxCal[hBCount] = sensors[calSensorIndexLocation].avgX;
+    HallCalibrationData.ByCal[hBCount] = sensors[calSensorIndexLocation].avgY;
+    HallCalibrationData.BzCal[hBCount] = sensors[calSensorIndexLocation].avgZ;
+    hBCount++;
+  }
+  //Calibration data Now stored in HallCalibrationData Struct.
 }
 
 void hallSensorZeroCal(){
@@ -1256,6 +1379,7 @@ void waitStylusHome(bool animate){
   bool fwd = true;
   while(!digitalRead(REED_SWITCH)){ //Wait for reed switch to be in place before gathering data
     if (animate){
+      oled.set1X();
       oled.setCursor(dotCount*6,7);
       if (millis()-sTime >= 50){
         if (fwd){
