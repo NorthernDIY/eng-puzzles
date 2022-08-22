@@ -502,7 +502,7 @@ def getMsgType(message):
             return msgType.ACCEL
         elif message.__contains__(KEY.ENDSESSION):
             return msgType.END
-        elif message.__contains__(KEY.BIOSAVX):
+        elif message.__contains__(KEY.BSD):
             return msgType.CAL_HALL
         elif message.__contains__(KEY.SRVCHECK):
             return msgType.CHECK
@@ -557,11 +557,12 @@ def newSQLdb(mySession): #Setup the session specific DB
     if UseHZ:
         for i in range(0,NumHallSensors):
             createHallTable+="," +"z" + str(i) + " DECIMAL"
-        createHallCalNoiseTable = "CREATE TABLE HNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, z DECIMAL, PRIMARY KEY(senseNum));"
-        createHallCalBSTable = "CREATE TABLE HBioSav(BSX DECIMAL, BSY DECIMAL, BSZ DECIMAL);"
+
+        createHallCalNoiseTable = "CREATE TABLE HNoise(snap Decimal, senseNum INTEGER, x DECIMAL, y DECIMAL, z DECIMAL, PRIMARY KEY(snap, senseNum));"
+        createHallCalBSTable = "CREATE TABLE HBioSav(snap DECIMAL, BSX DECIMAL, BSY DECIMAL, BSZ DECIMAL, PRIMARY KEY (snap));"
     else:
-        createHallCalNoiseTable = "CREATE TABLE HNoise(senseNum INTEGER, x DECIMAL, y DECIMAL, PRIMARY KEY(senseNum));"
-        createHallCalBSTable = "CREATE TABLE HBioSav(BSX DECIMAL, BSY DECIMAL);"
+        createHallCalNoiseTable = "CREATE TABLE HNoise(snap Decimal, senseNum INTEGER, x DECIMAL, y DECIMAL, PRIMARY KEY(snap, senseNum));"
+        createHallCalBSTable = "CREATE TABLE HBioSav(snap DECIMAL, BSX DECIMAL, BSY DECIMAL, PRIMARY KEY (snap));"
     
     createHallTable += ",Primary KEY(time));"
     
@@ -671,28 +672,43 @@ def InsertHallCal(messageData, mySession):
     cursor = mySession[MDK.SQC]
     sqlConn = mySession[MDK.SQP]
     NHS = mySession[MDK.NHS]
-    
+    hNoiseTag = ""
+    stepSz = 2
     if UseHZ:
-        SqlString_a = "INSERT INTO HNoise(senseNum, x, y, z) Values( ?, ?, ?, ?);"
-        SqlString_b = "INSERT INTO HBioSav(BSX, BSY, BSZ) Values( ?, ?, ?);"
-    else:
-        SqlString_a = "INSERT INTO HNoise(senseNum, x, y) Values( ?, ?, ?);"
-        SqlString_b = "INSERT INTO HBioSav(BSX, BSY) Values( ?, ?);"
-    for s in range(0,NHS):#innerloop = sensor
+        stepSz = 3
+    for snap in range(3):
+        if snap==0:
+            hNoiseTag = KEY.HN_1
+        elif snap==1:
+            hNoiseTag = KEY.HN_2
+        elif snap==2:
+            hNoiseTag = KEY.HN_3
+
         if UseHZ:
-            sqlData_a = (str(s), messageData[KEY.HCALX][s], messageData[KEY.HCALY][s], messageData[KEY.HCALZ][s])
-            
-        else:             
-            sqlData_a = (str(s), messageData[KEY.HCALX][s], messageData[KEY.HCALY][s])
-        cursor.execute(SqlString_a,sqlData_a)
+            SqlString_a = "INSERT INTO HNoise(snap,senseNum, x, y, z) Values(?, ?, ?, ?, ?);"
+            SqlString_b = "INSERT INTO HBioSav(snap, BSX, BSY, BSZ) Values(?, ?, ?, ?);"
+        else:
+            SqlString_a = "INSERT INTO HNoise(snap, senseNum, x, y) Values(?, ?, ?, ?);"
+            SqlString_b = "INSERT INTO HBioSav(snap, BSX, BSY) Values(?, ?, ?);"
+        
+        for s in range(0,NHS):#innerloop = sensor
+            if UseHZ:
+                sqlData_a = (str(snap), str(s), messageData[hNoiseTag][s*stepSz], messageData[hNoiseTag][s*stepSz+1], messageData[hNoiseTag][s*stepSz+2])
+                
+            else:             
+                sqlData_a = (str(snap), str(s), messageData[hNoiseTag][s], messageData[hNoiseTag][s+1])
+            #print (sqlData_b)
+            cursor.execute(SqlString_a,sqlData_a)
+            sqlConn.commit()
+        
+        if UseHZ:
+            sqlData_b = (str(snap),messageData[KEY.BSD][snap*3], messageData[KEY.BSD][snap*3 +1], messageData[KEY.BSD][snap*3 +1])
+        else:
+            sqlData_b = (str(snap),messageData[KEY.BSD][snap*3], messageData[KEY.BIOSAVY][snap*3 +1])
+        #print (SqlString_b)
+        #print (sqlData_b)
+        cursor.execute(SqlString_b,sqlData_b)
         sqlConn.commit()
-    
-    if UseHZ:
-        sqlData_b = (messageData[KEY.BIOSAVX], messageData[KEY.BIOSAVY], messageData[KEY.BIOSAVZ])
-    else:
-        sqlData_b = (messageData[KEY.BIOSAVX], messageData[KEY.BIOSAVY])
-    cursor.execute(SqlString_b,sqlData_b)
-    sqlConn.commit()
 
 
 def InsertAccelData(messageData, mySession):

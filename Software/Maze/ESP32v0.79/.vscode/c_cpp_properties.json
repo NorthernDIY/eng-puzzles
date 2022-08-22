@@ -443,7 +443,7 @@
                 ]
             },
             "defines": [
-                "PLATFORMIO=60103",
+                "PLATFORMIO=60104",
                 "ARDUINO_Node32s",
                 "HAVE_CONFIG_H",
                 "MBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\"",

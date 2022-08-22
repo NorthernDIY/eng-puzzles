@@ -13,12 +13,22 @@ HALLDATA = "D"
 ENDSESSION = "Bye" #Sent to server to close session
 STARTSESSION = "Hey" #Sent to server to start a new session
 FWVER = "FWV"
+
+#Deprecated Tags
+"""
 BIOSAVX = "BSX" #Run time calibration constant
 BIOSAVY = "BSY" #Run time calibration constant
 BIOSAVZ = "BSZ" #Run time calibration constant
 HCALX ="H_CAL_X" #Run time baseline noise data
 HCALY ="H_CAL_Y"#Run time baseline noise data sent at start of session
 HCALZ ="H_CAL_Z"#Run time baseline noise data sent at start of session
+"""
+
+BSD = "B" # Combined 3x BSX,BSY,BSZ tag
+
+HN_1 = "N0" #Hall Sensor Noise Snapshot 1
+HN_2 = "N1" #Hall Sensor Noise Snapshot 2
+HN_3 = "N2" #Hall Sensor Noise Snapshot 3
 SRVCHECK ="CHK"#Periodic message sent with this queries server to ensure its still active
 SRVOK ="OK"#Response from server expected from SRVCHECK
 SESSIONID ="ID"#This key is the session id

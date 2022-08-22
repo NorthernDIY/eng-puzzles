@@ -94,6 +94,7 @@ uint16_t ACCELSAMPPERIOD = 40;
 #define KEY_HNOISE0 "N0" //Run time baseline bias data set at start of session
 #define KEY_HNOISE1 "N1" //Run time baseline bias data set at start of session
 #define KEY_HNOISE2 "N2" //Run time baseline bias data set at start of session
+
 #define KEY_SRVCHECK "CHK"//Periodic message sent with this queries server to ensure its still active
 #define KEY_SRVOK "OK"//Response from server expected from SRVCHECK
 #define KEY_SESSIONID "ID"//This key is the session id
@@ -1263,7 +1264,7 @@ void calibrateHallSensors(){
   oled.set2X();
   oled.println("H. Sensor\nCalibration");
   oled.set1X();
-  oled.println("Lift & Invert Stylus\nClose Home with finger");
+  oled.println("Lift & Invert Stylus\nClose Home w/ finger");
   waitStylusInvert();
   waitStylusHome(false);
   delay(HOME_SWITCH_ACTIVATION_TIME);
@@ -1274,13 +1275,13 @@ void calibrateHallSensors(){
   int hNCount = 0;
   
   while(hNCount<3){
-    Serial.println(hNCount,DEC);
+    //Serial.println(hNCount,DEC);
     uint32_t cTime = millis();
     uint32_t sTime = 0;
     int count = 0;
     while(count<HALLAVERAGINGSAMPLES_MAX){
       cTime = millis();
-      if((cTime - sTime)>=6){//Full scan takes about 5ms.
+      if((cTime - sTime)>=10){//Full scan takes about 5ms.
         scanHallMatrix();
         sTime=cTime;
         count++;
@@ -1464,3 +1465,23 @@ void serverCheckInTask(void * pvParameters){
     delay(SERVERCHECKTIME);
   }
 }*/
+
+void genHallStatistics(){
+  int16_t xHallData[24][100];
+  int16_t yHallData[24][100];
+  int16_t zHallData[24][100];
+  int16_t xHallDelta[24][100];
+  int16_t yHallDelta[24][100];
+  int16_t zHallDelta[24][100];
+  int32_t xHallSumSquared[24];
+  int32_t yHallSumSquared[24];
+  int32_t zHallSumSquared[24];
+  float xHallSTD[24];
+  float yHallSTD[24];
+  float zHallSTD[24];
+  
+  float xHallAvg[24];
+  float yHallAvg[24];
+  float zHallAvg[24];
+
+}
