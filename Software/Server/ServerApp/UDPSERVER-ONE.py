@@ -16,7 +16,8 @@ from AMazeThingSessionFormat import DBSessionObjectTagTypes as metaTagTypes
 from AMazeThingSessionFormat import KPT_HTAGS, KPT_HTAGTYPES, KPT_ATAGS, KPT_ATAGTYPES
 from msgpack import loads as dec_msgpack
 from msgpack import dumps as enc_msgpack
-import sys,tty,os,termios
+import sys,os
+""",tty,termios""" #Linux Only
 from sys import argv as sysArgs
 from sys import exit as sysExit
 from datetime import datetime
@@ -87,7 +88,7 @@ def getIFIPlist():#Works better on linux than other options...
 #Non blocking Linux/Windows/MacOSX key reading
 #Courtesy of https://stackoverflow.com/a/67939368
 def getkey():
-    old_settings = termios.tcgetattr(sys.stdin)
+    #old_settings = termios.tcgetattr(sys.stdin)
     tty.setcbreak(sys.stdin.fileno())
     try:
         while True:
@@ -114,8 +115,8 @@ def getkey():
             #print("key: %s\t int: %d"%(k,int(k)))
             return key_mapping.get(k, chr(k))
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-
+        #termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        print("Reminder to fix TERMIOS dependency! Your terminal will be wierd...!!!")
 
 
 
@@ -631,6 +632,7 @@ def endSession(mySession, offlineClose):
     mySession[MDK.SQP] = None
 
 def InsertHallData(messageData, mySession):
+    pprint(messageData)
     UseHZ = mySession[MDK.HZ]
     cursor = mySession[MDK.SQC]
     sqlConn = mySession[MDK.SQP]
