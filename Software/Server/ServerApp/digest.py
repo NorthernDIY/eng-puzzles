@@ -30,7 +30,15 @@ import matplotlib.pyplot as plt
     filter radius >=49*2?
     import MazeV1Flip
 """
+#Sept 9 EOD
+"""First real results showing that the system is working.  Fixing the UDP Server bug for hall data unpacking shows that the position algorithm works!
+    Currently only uses the first BIOSAVART constant set, there are 3 to average from
+    Currently only uses the first noise set, there are 3 to average from.
+    Wall Jumping is still a problem, an artifact of the V1 Algorithm.
+    
+    
 
+"""
 
 PRINTSESSIONTAGS = 1
 VERBOSE = 1
@@ -103,12 +111,12 @@ def GetArguments():
     valid = False
     fileName = ''
     if alen==3:
-            if args[1] == "--in":
+            if args[1] == "-in":
                 fileName = args[2]
                 print("Digesting file: %s" %intakeFile)
                 valid = True
             elif ~valid:
-                    print("Usage: digest.py -i 'InputFileName.db'")
+                    print("Usage: digest.py -in 'InputFileName.db'")
     return fileName
 
 def OpenDB(fileName):
@@ -165,13 +173,15 @@ def CalculateBioSavartRTC():
     global BSX, BSY, BSZ, BSC
     print("Calculating BioSavart RuntTime Calibration Constant:")
     cursor = mySession[MDK.SQC]
-    sqlQueryBS = "SELECT * FROM HBioSav;"
+    sqlQueryBS = "SELECT * FROM HBioSav WHERE snap = 0;"
     cursor.execute(sqlQueryBS)
-    BSX, BSY, BSZ = cursor.fetchone()
+    
+    snap, BSX, BSY, BSZ = cursor.fetchone()
     if VERBOSE:
         print("\tUsing BSX: " + str(BSX))
         print("\tUsing BSY: " + str(BSY))
         print("\tUsing BSZ: " + str(BSZ))
+        print(HallBaseLineNoise)
     #Use HallBaseLineNoise[0][0 through 2] as Sensor 31 is in the first column and therefore uses the average noise
     bioSavTemp=((float(BSX)-HallBaseLineNoise[14][0])**2 +(float(BSY)-HallBaseLineNoise[14][1])**2+(float(BSZ)-HallBaseLineNoise[14][2])**2)**0.5
     BSC=(((SWITCHDIST**2+BOARDSEP**2)**0.5)**3)*bioSavTemp #Biot Savart formula based calculation
@@ -238,8 +248,8 @@ def CheckHallContinuity():
             print("All good!\n")
     return (not atLeastOneMissing)
 
-#Generates Baseline Noise List for all senosors in maze.  First 2 columns have average of remaining columns applied
-#Note that this can cause issues when 
+#Generates Baseline Noise List for all sensors in maze.  This is just data sent during the calibration routine of the device
+
 def CalculateBaseLineNoise():
     global HallBaseLineNoise
     
@@ -249,34 +259,29 @@ def CalculateBaseLineNoise():
     
     cursor = mySession[MDK.SQC]
     #sqlConn = mySession[MDK.SQP]
-    #from Algorithm V1 we want columns 3 through 6 (not zero indexed)
-    NoisySensorList = MZ.sensCol3.copy()
+    NoisySensorList = MZ.sensCol1.copy()
+    NoisySensorList.extend(MZ.sensCol2.copy())
+    NoisySensorList.extend(MZ.sensCol3.copy())
     NoisySensorList.extend(MZ.sensCol4.copy())
     NoisySensorList.extend(MZ.sensCol5.copy())
     NoisySensorList.extend(MZ.sensCol6.copy())
-    #print(NoisySensorList)
     Nx, Ny, Nz = 0.00000, 0.000000, 0.00000
-    
-    AveragedNoiseSensorList = MZ.sensCol1.copy()
-    AveragedNoiseSensorList.extend(MZ.sensCol2.copy())
     
     for sensor in NoisySensorList:
         sqlSensorQuery = "SELECT * from HNoise WHERE senseNum = " + str(sensor) + ";"
         cursor.execute(sqlSensorQuery)
         NData = cursor.fetchone()
-        HallBaseLineNoise[sensor] = list(NData[1:])
-        Nx += float(NData[1])
-        Ny += float(NData[2])
-        Nz += float(NData[3])
+        HallBaseLineNoise[sensor] = list(NData[2:]) # Trim off Snap and sense num
+        #Nx += float(NData[1])
+        #Ny += float(NData[2])
+        #Nz += float(NData[3])
         #print(NData)
     
-    BaseLineNoise = [Nx/16.0, Ny/16.0, Nz/16.0]
-    for sensor in AveragedNoiseSensorList:
-        HallBaseLineNoise[sensor] = BaseLineNoise
+    #BaseLineNoise = [Nx/16.0, Ny/16.0, Nz/16.0]
     
-    print(HallBaseLineNoise)
-    #if VERBOSE:
-    #    print("Calculated Baseline Noise: " + str(HallBaseLineNoise)+"\n")
+    if VERBOSE:
+        print("Baseline Noise: ")
+        print(HallBaseLineNoise)
     
 def grabHallData(timeStep):
     cursor = mySession[MDK.SQC]
@@ -336,7 +341,7 @@ def CalculatePosition(timeStep):
     
     #Filtering using comparison to last point....
     #compare based on last point (removes outliers)
-    """if (lastPos[0]==100)or(lastPos[0]-FILTER<=MazeCoordinates[minLoc][0]<=lastPos[0]+FILTER)or(lastPos[1]-FILTER<=MazeCoordinates[minLoc][1]<=lastPos[1]+FILTER):
+    #if (lastPos[0]==100)or(lastPos[0]-FILTER<=MazeCoordinates[minLoc][0]<=lastPos[0]+FILTER)or(lastPos[1]-FILTER<=MazeCoordinates[minLoc][1]<=lastPos[1]+FILTER):
     #alternate filtering
     #if ((lastPos[0]==100) or (((MazeCoordinates[minLoc][0]-lastPos[0])**2+(MazeCoordinates[minLoc][1]-lastPos[1])**2)**0.5)<MZ.ALTFILTER):
         sqldata= timeStep, point[0], point[1],"N/A", "N/A"
@@ -359,9 +364,11 @@ def CalculatePosition(timeStep):
     """
     #note x is inverted on plot!??  Why tho....?
     pColourMultiplier = float(timeStep)/lastHTime
-    pColour = (0.25+0.25*pColourMultiplier, pColourMultiplier, 0.25+ 0.25*pColourMultiplier)
-    pAlpha = 0.33 +pColourMultiplier*0.33
-    ax.plot(-point[0], point[1], marker = "o", markersize = 10, markeredgecolor = "black", markerfacecolor=pColour, alpha=pAlpha)
+    #pColour = (0.25+0.25*pColourMultiplier, pColourMultiplier, 0.25+ 0.25*pColourMultiplier)
+    pColour = (0, pColourMultiplier, 1-pColourMultiplier)
+    #pAlpha = 0.33 +pColourMultiplier*0.33
+    pAlpha = 0.5
+    ax.plot(-point[0], point[1], marker = "o", markersize = 8, markeredgecolor = "grey", markerfacecolor=pColour, alpha=pAlpha)
     
     
 def genSensorVectorDistances():

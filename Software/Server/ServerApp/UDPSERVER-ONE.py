@@ -4,6 +4,12 @@
 #JULY 14 - Start Thread shutdown flag doesn't exist....but it does...just python things.
 #Also Emerich III
 
+#SEPT 9 EOD
+"""
+    Hall Data now correctly unpacked and stored.  This also shows that the positioning algorithm is working and that the data handling upstream appears to be correct!
+    No small victory!
+"""
+
 
 import socket, sqlite3,os
 import AMazeThing_Keys as KEY
@@ -632,7 +638,7 @@ def endSession(mySession, offlineClose):
     mySession[MDK.SQP] = None
 
 def InsertHallData(messageData, mySession):
-    pprint(messageData)
+    #pprint(messageData)
     UseHZ = mySession[MDK.HZ]
     cursor = mySession[MDK.SQC]
     sqlConn = mySession[MDK.SQP]
@@ -640,6 +646,8 @@ def InsertHallData(messageData, mySession):
     HBSz = mySession[MDK.HBS]
     HRT = mySession[MDK.HRT]
     PKT_TIMES = mySession[MDK.TIME_KPT]
+    stepSize = 3
+    blockOffset = 72
     if PKT_TIMES:
         SqlData = (messageData[KEY.HALLTIME],messageData[KEY.REALSTART], messageData[KEY.REALSTOP])
         DBGQueryString = "INSERT INTO HPacketTimes(HTime, Start, End) Values(?, ?, ?);"
@@ -655,16 +663,19 @@ def InsertHallData(messageData, mySession):
     t=0
     if (UseHZ):
         stepSize = 3
+        blockOffset = 72
     else:
         stepSize=2
+        blockOffset = 48
     for i in range(0,HBSz*NHS, NHS):#outerloop = time
         hallData = str(t*HRT+currHTime)
         for s in range(0,(NHS*stepSize -1),stepSize):#innerloop = sensor
-            hallData += "," + str(messageData[KEY.HALLDATA][s])#x
-            hallData += "," + str(messageData[KEY.HALLDATA][s+1])#y
+            hallData += "," + str(messageData[KEY.HALLDATA][s+ (blockOffset*t)])#x
+            hallData += "," + str(messageData[KEY.HALLDATA][s+1+ (blockOffset*t)])#y
             if (UseHZ):
-                hallData += "," + str(messageData[KEY.HALLDATA][s+2])#z
+                hallData += "," + str(messageData[KEY.HALLDATA][s+2+ (blockOffset*t)])#z
         nextSqlString =  hallQueryString + hallData + ")"
+        #print(nextSqlString)
         cursor.execute(nextSqlString)
         sqlConn.commit()
         t+=1
