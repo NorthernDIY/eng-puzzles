@@ -309,6 +309,7 @@ def CalculatePosition(timeStep):
     mazeWeights=zeros((1,mazeSize)) #creates/clears vector of weights
     sensorVec = []
     sensorVecMag = []
+    point = []
     for sensor in range(0, NumSensors): # iterate through sensors
         xData = HallData[sensor]
         yData = HallData[sensor + 24]
@@ -334,41 +335,40 @@ def CalculatePosition(timeStep):
             mazeWeights[0]=npadd(mazeWeights[0],weight[0])
             sensorVec[sensor] = 0
             sensorVecMag[sensor] = 0
-    minLoc=argmin(mazeWeights) #find minimum error(weight)
+            minLoc=argmin(mazeWeights) #find minimum error(weight)
     
         
-    point=[-MazeCoordinates[minLoc][0],MazeCoordinates[minLoc][1]]
+            point=[-MazeCoordinates[minLoc][0],MazeCoordinates[minLoc][1]]
     
     #Filtering using comparison to last point....
     #compare based on last point (removes outliers)
     #if (lastPos[0]==100)or(lastPos[0]-FILTER<=MazeCoordinates[minLoc][0]<=lastPos[0]+FILTER)or(lastPos[1]-FILTER<=MazeCoordinates[minLoc][1]<=lastPos[1]+FILTER):
     #alternate filtering
     #if ((lastPos[0]==100) or (((MazeCoordinates[minLoc][0]-lastPos[0])**2+(MazeCoordinates[minLoc][1]-lastPos[1])**2)**0.5)<MZ.ALTFILTER):
-        sqldata= timeStep, point[0], point[1],"N/A", "N/A"
-        #cursor.execute(sqlPositionDataInsertQuery,sqldata)
-        #print(sqlPositionDataInsertQuery)
-        print(sqldata)
-                #print(sql)
-        lastPos=MazeCoordinates[minLoc]
-        trials=0
-    else:
-        trials=trials+1
-        if trials>=3:
-            sqldata= timeStep, point[0], point[1],"N/A", "N/A"#-1,MZ.MAZEVERSION
-            #cursor.execute(sqlPositionDataInsertQuery,sqldata)
-            #print(sqlPositionDataInsertQuery)
+            sqldata= timeStep, point[0], point[1],"N/A", "N/A"
+    #cursor.execute(sqlPositionDataInsertQuery,sqldata)
+    #print(sqlPositionDataInsertQuery)
             print(sqldata)
-            #print(sql)
+    #print(sql)
             lastPos=MazeCoordinates[minLoc]
             trials=0
-    """
-    #note x is inverted on plot!??  Why tho....?
-    pColourMultiplier = float(timeStep)/lastHTime
+        else:
+            trials=trials+1
+            if trials>=3:
+                sqldata= timeStep, point[0], point[1],"N/A", "N/A"#-1,MZ.MAZEVERSION
+                #cursor.execute(sqlPositionDataInsertQuery,sqldata)
+                #print(sqlPositionDataInsertQuery)
+                print(sqldata)
+                #print(sql)
+                lastPos=MazeCoordinates[minLoc]
+                trials=0
+        #note x is inverted on plot!??  Why tho....?
+        pColourMultiplier = float(timeStep)/lastHTime
     #pColour = (0.25+0.25*pColourMultiplier, pColourMultiplier, 0.25+ 0.25*pColourMultiplier)
-    pColour = (0, pColourMultiplier, 1-pColourMultiplier)
+        pColour = (0, pColourMultiplier, 1-pColourMultiplier)
     #pAlpha = 0.33 +pColourMultiplier*0.33
-    pAlpha = 0.5
-    ax.plot(-point[0], point[1], marker = "o", markersize = 8, markeredgecolor = "grey", markerfacecolor=pColour, alpha=pAlpha)
+        pAlpha = 0.5
+        ax.plot(-point[0], point[1], marker = "o", markersize = 8, markeredgecolor = "grey", markerfacecolor=pColour, alpha=pAlpha)
     
     
 def genSensorVectorDistances():
